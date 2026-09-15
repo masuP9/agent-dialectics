@@ -66,19 +66,19 @@ status: stop
 ---
 ```
 
-## MCP invocation (codex mode)
+## Codex invocation (codex mode)
 
-```
-mcp__codex__codex(
-  prompt: "<filled template above>",
-  developer-instructions: "<language directive>",
-  sandbox: "read-only",
-  cwd: "<corpus root>"
-)
+Write `<language directive>` + the filled template above to a prompt file, then:
+
+```bash
+export CODEX_SKILL_CONTEXT=1   # plus the helper-loading block
+rc=0
+INDUCTION_THREAD=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "") || rc=$?
+# rc=0 → record induction_thread_id: "exec:$INDUCTION_THREAD"; read the response from "$OUTPUT_FILE"
 ```
 
-For round 2+, continue the same **induction** thread with `mcp__codex__codex-reply(threadId, prompt)`
-so the inductive role retains the prior round's measurements.
+For round 2+, continue the same **induction** thread by passing its `<uuid>` as the 5th argument
+(`codex exec resume` under the hood) so the inductive role retains the prior round's measurements.
 
 ## Abduction variant (`--abduce`) note
 

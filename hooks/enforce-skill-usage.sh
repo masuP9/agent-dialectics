@@ -19,14 +19,18 @@ COMMAND=$(jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 echo "$COMMAND" | grep -qE '^[[:space:]]*export[[:space:]]+CODEX_SKILL_CONTEXT=1' && exit 0
 
 # Soft guard: only side-effect helpers (external execution / review / session-state writes).
-# Pure transforms (codex_strip_ansi etc.) and speculative sourcing/variable patterns
-# are intentionally NOT guarded — see docs/bash-usage.md "Sunset criteria".
-PATTERN='(^|[;&|]|\$\(|`)[[:space:]]*codex_(run_exec|run_review|save_session_state|save_thread)\b'
+# The load_* helpers are included because they migrate legacy state files in place.
+# Pure transforms (codex_strip_ansi, codex_extract_thread_id etc.) and speculative
+# sourcing/variable patterns are intentionally NOT guarded — see docs/bash-usage.md "Sunset criteria".
+# Names are listed explicitly: \b does not match run_exec -> run_exec_session.
+PATTERN='(^|[;&|]|\$\(|`)[[:space:]]*codex_(run_exec|run_exec_session|run_review|save_session_state|save_thread|save_thread_session|load_session_state|load_session_thread|load_thread|load_thread_sandbox)\b'
 
 if echo "$COMMAND" | grep -qE "$PATTERN"; then
   cat >&2 << 'MSG'
 This command calls a codex-collab side-effect helper directly
-(codex_run_exec / codex_run_review / codex_save_session_state / codex_save_thread).
+(codex_run_exec / codex_run_exec_session / codex_run_review /
+ codex_save_session_state / codex_save_thread / codex_save_thread_session /
+ codex_load_session_state / codex_load_session_thread / codex_load_thread / codex_load_thread_sandbox).
 
 This is a soft guard against accidental direct use of internal APIs,
 not a security boundary. Preferred entry points:

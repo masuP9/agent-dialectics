@@ -141,17 +141,14 @@ codex exec \
 
 ## Important Notes
 
-### Stateless Execution
+### Stateless vs. Resumed Execution
 
-Each `codex exec` call is **completely independent**:
-- No conversation history between calls
-- No session state is maintained
-- Each call must include all necessary context
+A plain `codex exec` call starts a **new** thread with no history. To continue a conversation, resume the thread by id (`codex exec resume <uuid>`, see *Stateful Sessions* below) — codex-collab does this via `codex_run_exec_session`.
 
-This means:
-- Include relevant code/context in each prompt
+When a new thread is started (first turn, legacy state, sandbox change, or a lost thread):
+- Include relevant code/context in the prompt
 - For review, include both the original plan and the changes made
-- Cannot reference "previous" conversations
+- Do not reference "previous" conversations the new thread has never seen
 
 ### Long Prompts
 
@@ -188,8 +185,8 @@ echo "Your prompt" | codex exec -s read-only -
 Resume a previous session:
 
 ```bash
-codex exec resume --last  # Resume most recent session
-codex exec resume <session-id>  # Resume specific session
+codex exec resume <session-id>  # Resume specific session (used by codex-collab)
+codex exec resume --last        # Resume most recent session (NOT used by codex-collab: may pick another workflow's thread)
 ```
 
 ### codex exec review
@@ -237,21 +234,24 @@ codex review --uncommitted -c 'model="gpt-5.6-sol"'
 | Diff collection | Automatic (uncommitted changes) | Manual (must include in prompt) |
 | Purpose | Specialized for code review | General-purpose execution |
 | Prompt | Optional (enhances default review) | Required |
-| Sandbox | Not applicable (read-only by design) | Configurable via `-s` |
+| Sandbox | `-c sandbox_mode="..."` only | Configurable via `-s` |
+
+> **Flags:** `codex review` does **not** accept `-s` or `-m` (`unexpected argument`, verified on 0.154.0). Use `-c 'sandbox_mode="read-only"'` and `-c 'model="..."'` instead (`codex_run_review` already does this).
 
 ### Integration with codex-collab
 
 The recommended approach for review in codex-collab is:
 1. **Primary**: Use `codex review --uncommitted` via `codex_run_review()`
-2. **Fallback**: If `codex review` is unavailable or fails, fall back to `codex exec` via `codex_run_exec()` with diff file reference
+2. **Fallback**: If `codex review` fails, continue the planning thread with `codex_run_exec_session()` and a diff file reference
 
 ```bash
 # Primary: codex review
 codex_run_review "$OUTPUT_FILE" "$MODEL" || REVIEW_EXIT=$?
 
-# Fallback: codex exec (if review fails)
+# Fallback: resume the plan thread (Codex reviews against its own plan)
 if [ "$REVIEW_EXIT" -ne 0 ]; then
-  codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only" "$MODEL"
+  rc=0
+  codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" "read-only" "$MODEL" "$PLAN_THREAD_ID" > /dev/null || rc=$?
 fi
 ```
 
@@ -263,10 +263,16 @@ The recommended way to run Codex within codex-collab is via the helper functions
 export CODEX_SKILL_CONTEXT=1
 source scripts/codex-helpers.sh
 
-# For general execution
+# For stateful execution (new thread, then resume)
 PROMPT_FILE=$(codex_write_prompt "$PROMPT_CONTENT" "plan")
 OUTPUT_FILE="$(codex_tmp_path 'codex-output.md')"
-codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only"   # model arg omitted → Codex default
+rc=0
+THREAD_ID=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" "read-only" "") || rc=$?   # model "" → Codex default
+rc=0
+THREAD_ID=$(codex_run_exec_session "$NEXT_PROMPT_FILE" "$OUTPUT_FILE" "read-only" "" "$THREAD_ID") || rc=$?
+
+# For one-shot stateless execution
+codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only"
 
 # For code review (preferred for review phase)
 REVIEW_OUTPUT="$(codex_tmp_path 'codex-review-output.md')"
@@ -278,16 +284,21 @@ codex_run_review "$REVIEW_OUTPUT"
 | Function | Purpose |
 |----------|---------|
 | `codex_write_prompt(content, prefix)` | Write prompt to temp file, return path |
-| `codex_run_exec(prompt, output, sandbox, model)` | Run codex exec with full I/O handling |
+| `codex_run_exec(prompt, output, sandbox, model)` | Run codex exec (stateless) with full I/O handling |
+| `codex_run_exec_session(prompt, output, sandbox, model, [thread_id])` | Run `codex exec --json` / `codex exec resume`; prints the thread id; return codes 0/2/3/4/5 |
+| `codex_extract_thread_id(jsonl)` | Extract the thread id from a `thread.started` event |
+| `codex_is_valid_uuid(id)` / `codex_is_valid_sandbox(mode)` | Validators |
 | `codex_run_review(output, model, sandbox)` | Run codex review --uncommitted with fallback support (sandbox defaults to read-only) |
 | `codex_infer_verdict(response)` | Infer verdict from review response (metadata → [P1]-[P4] → pass) |
 | `codex_extract_review_findings(response)` | Extract findings from review response |
 | `codex_build_exec_command(prompt, sandbox, model)` | Build command string (for eval) |
 | `codex_strip_ansi(text)` | Remove ANSI escape codes from output |
 | `codex_save_session_state(task_id, mode, thread_id, sandbox, workflow)` | Save session state to JSON (task_id-scoped) |
-| `codex_load_session_state(task_id)` | Load session state, sets SESSION_* globals |
-| `codex_save_thread(task_id, name, thread_id)` | Save named thread (for claude-leads Thread B/C) |
-| `codex_load_thread(task_id, name)` | Load named thread ID |
+| `codex_load_session_state(task_id)` | Load session state, sets SESSION_* globals; migrates legacy mcp/bash files (0 / 1 not found / 2 I/O failure) |
+| `codex_save_thread(task_id, name, value)` | Save a raw named-thread value |
+| `codex_save_thread_session(task_id, name, uuid, sandbox)` | Save named thread as `uuid\|sandbox` (for claude-leads Thread B/C) |
+| `codex_load_session_thread(task_id, sandbox)` | Main thread UUID only if resumable with that sandbox (0 / 1 none, legacy, invalid or sandbox mismatch / 2 I/O failure) |
+| `codex_load_thread(task_id, name)` / `codex_load_thread_sandbox(task_id, name)` | Load named thread UUID / sandbox (0 / 1 none or invalid / 2 I/O failure) |
 | `codex_diff_tier(diff_content)` | Determine diff size tier (small/medium/large) |
 | `codex_sanitize_task_id(raw_id)` | Sanitize task_id for filename safety |
 | `codex_json_escape(value)` | Escape string for JSON embedding |
@@ -295,10 +306,10 @@ codex_run_review "$REVIEW_OUTPUT"
 ### Key Points
 
 - **Blocking execution**: Both `codex exec` and `codex review` block until completion, no polling needed
-- **ANSI stripping**: Output may contain ANSI escape codes; `codex_run_exec` and `codex_run_review` handle this automatically
-- **Stdin input**: Use `cat file | codex exec -` format to avoid escaping issues
+- **ANSI stripping**: Output may contain ANSI escape codes; `codex_run_exec` and `codex_run_review` handle this automatically. `codex_run_exec_session` reads the body from `-o`, which has no ANSI codes
+- **Stdin input**: Use `codex exec - < file` format to avoid escaping issues
 - **Timeout**: Bash tool has max 600s (10 minutes) timeout; set `codex.wait_timeout` accordingly
-- **Fallback**: `codex_run_review()` returns non-zero on any failure; caller should fall back to `codex_run_exec()`
+- **Fallback**: `codex_run_review()` returns non-zero on any failure; caller should fall back to `codex_run_exec_session()` on the plan thread
 
 ## Error Handling
 
@@ -318,50 +329,56 @@ For long operations, consider:
 - Using simpler model for initial pass
 - Providing more specific context to reduce thinking time
 
-## Codex MCP Tools
+## Stateful Sessions: `codex exec --json` + `codex exec resume`
 
-Codex MCP サーバー (`codex mcp-server`) が提供するツールで、ステートフルなセッション管理が可能。
+codex-collab keeps multi-turn context by resuming Codex threads from the CLI.
 
-### `mcp__codex__codex` — Start a new session
+```bash
+# New thread: stdout = JSONL events, -o = final agent message
+codex exec -s read-only [-m MODEL] --json -o out.md - < prompt.txt > events.jsonl 2> stderr.log
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `prompt` | string | Yes | Initial user prompt |
-| `sandbox` | enum | No | `read-only` / `workspace-write` / `danger-full-access` |
-| `model` | string | No | Model override (e.g., `gpt-5.2-codex`) |
-| `cwd` | string | No | Working directory |
-| `developer-instructions` | string | No | Developer-role instructions (e.g., language directive) |
-| `approval-policy` | enum | No | `untrusted` / `on-failure` / `on-request` / `never` |
-| `base-instructions` | string | No | Override default instructions |
-| `profile` | string | No | Config profile from config.toml |
-| `config` | object | No | Individual config overrides |
+# Continue: -s goes BETWEEN exec and resume (resume itself has no -s)
+codex exec -s read-only [-m MODEL] resume <THREAD_UUID> --json -o out.md - < next.txt > events.jsonl 2> stderr.log
+```
 
-**Returns:** Response text and `threadId` for session continuation.
+Event lines (one JSON object per line, `type` is the first key):
 
-### `mcp__codex__codex-reply` — Continue an existing session
+```
+{"type":"thread.started","thread_id":"<uuid>"}
+{"type":"turn.started"}
+{"type":"item.started",...} / {"type":"item.completed","item":{"type":"agent_message",...}}
+{"type":"turn.completed","usage":{...}}
+```
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `threadId` | string | Yes | Thread ID from a previous `mcp__codex__codex` call |
-| `prompt` | string | Yes | Next user prompt |
+Rules used by `codex_run_exec_session`:
+- Never use `resume --last` (may pick another workflow's thread) or `--ephemeral` (not resumable).
+- Pass a **UUID** only: a non-UUID argument is treated as a thread *name*; an unknown name silently starts a **new** thread with a different id (exit 0).
+- The resumed turn must report the same `thread_id`; a mismatch is rc 5.
+- One thread = one sandbox (the CLI would honor a different `-s`, but mixing sandboxes in one conversation is not allowed by codex-collab).
 
-**Returns:** Response text (same thread context preserved).
+### Verified behavior (codex-cli 0.154.0, 2026-09-15)
 
-### CLI vs MCP Comparison
+| Case | Result |
+|------|--------|
+| Resume keeps context | Codeword given in turn 1 recalled in turn 2; same `thread_id` |
+| `-s read-only` resume of a workspace-write thread | Write denied (`Read-only file system`), no file created → CLI `-s` is honored |
+| `-s workspace-write` resume of a read-only thread | File created → CLI `-s` is honored (`-c sandbox_mode` not needed) |
+| Non-existent UUID | exit 1, JSONL empty, `-o` not created, stderr `thread/resume failed: no rollout found for thread id <id> (code -32600)` → rc 3 |
+| Thread removed with `codex delete --force` | Same as non-existent UUID → rc 3 |
+| Archived thread (`codex archive`) | exit 1, JSONL empty, stderr `session <id> is archived. Run codex unarchive …` → rc 4 (not auto-retried) |
+| Non-UUID thread name | exit 0, **new** thread started → rejected up front (rc 2) |
+| `--json` + `-o` | `-o` contains the final message; every JSONL line matches `^\{"type":"…"` |
 
-| Aspect | `codex exec` (CLI/Bash) | MCP Tools |
-|--------|------------------------|-----------|
-| State | Stateless (each call independent) | Stateful (threadId preserves context) |
-| ANSI codes | Present in output, needs stripping | Clean text, no stripping needed |
-| I/O | File-based (prompt.txt → output.md) | Direct tool parameters/response |
-| Review | `codex review --uncommitted` available | Not available (embed diff in prompt) |
-| Multi-turn | Manual history reconstruction | Automatic (thread preserves history) |
-| Timeout | Bash tool limit (600s max) | MCP framework manages |
-| Setup | CLI installed + PATH | MCP server configured |
-| Fallback | Always available if codex installed | Falls back to CLI if MCP unavailable |
+### Return codes of `codex_run_exec_session`
 
-### When to Use MCP vs CLI
+| rc | Meaning | Caller action |
+|----|---------|---------------|
+| 0 | Completed; thread id printed | Read `-o` output, persist thread id |
+| 2 | Precondition / local I/O error; codex not started | Report and stop |
+| 3 | Resume rejected before any turn (thread not found) | Rebuild context from the role's inputs in a new thread, **once** |
+| 4 | Outcome unknown (non-zero exit, malformed/missing JSONL, no `turn.completed`) | No automatic retry; inspect `*.stderr.log` (+ `git status` for workspace-write); ask user |
+| 5 | Completed but invalid (empty output, missing/ambiguous/mismatched thread id) | Same as 4 |
 
-- **MCP preferred**: Multi-turn exchanges, iterative reviews (thread preserves context)
-- **CLI preferred**: Large diff reviews (`codex review --uncommitted`), environments without MCP setup
-- **codex-collab default**: MCP primary, CLI fallback (detected automatically in Step 0a)
+## `codex mcp-server` removal
+
+`codex mcp-server` (the `codex` / `codex-reply` MCP tools) was deprecated in rust-v0.149.0 (openai/codex#39657) and removed in rust-v0.154.0 (openai/codex#42993). The official successor for rich integrations is the experimental `codex app-server` (JSON-RPC, not MCP-compatible). codex-collab uses `codex exec` / `codex exec resume` instead; remove any `codex mcp-server` entry from your MCP configuration (e.g. `~/.mcp.json`).

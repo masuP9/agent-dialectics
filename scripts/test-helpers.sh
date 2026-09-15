@@ -963,7 +963,7 @@ test_save_load_session_state() {
 
   # Test 1: Save session state
   local state_file
-  state_file=$(codex_save_session_state "test-task-1" "mcp" "thread-abc-123" "read-only" "codex-leads")
+  state_file=$(codex_save_session_state "test-task-1" "exec" "aaaaaaaa-1111-4111-8111-111111111111" "read-only" "codex-leads")
 
   if [ -f "$state_file" ]; then
     pass "save_session_state: creates file"
@@ -986,16 +986,16 @@ test_save_load_session_state() {
   fi
 
   # Test 3: Verify loaded values
-  if [ "$SESSION_MODE" = "mcp" ]; then
-    pass "load_session_state: mode=mcp"
+  if [ "$SESSION_MODE" = "exec" ]; then
+    pass "load_session_state: mode=exec"
   else
-    fail "load_session_state mode" "Expected 'mcp', got '$SESSION_MODE'"
+    fail "load_session_state mode" "Expected 'exec', got '$SESSION_MODE'"
   fi
 
-  if [ "$SESSION_THREAD_ID" = "thread-abc-123" ]; then
-    pass "load_session_state: threadId=thread-abc-123"
+  if [ "$SESSION_THREAD_ID" = "aaaaaaaa-1111-4111-8111-111111111111" ]; then
+    pass "load_session_state: threadId=aaaaaaaa-1111-4111-8111-111111111111"
   else
-    fail "load_session_state threadId" "Expected 'thread-abc-123', got '$SESSION_THREAD_ID'"
+    fail "load_session_state threadId" "Expected 'aaaaaaaa-1111-4111-8111-111111111111', got '$SESSION_THREAD_ID'"
   fi
 
   if [ "$SESSION_SANDBOX" = "read-only" ]; then
@@ -1023,7 +1023,7 @@ test_save_load_session_state() {
   codex_save_session_state "test-task-bash" "bash" "" "read-only" "codex-leads" > /dev/null
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
   codex_load_session_state "test-task-bash" > /dev/null
-  if [ "$SESSION_MODE" = "bash" ] && [ -z "$SESSION_THREAD_ID" ]; then
+  if [ "$SESSION_MODE" = "exec" ] && [ -z "$SESSION_THREAD_ID" ]; then
     pass "save/load_session_state: bash mode with empty threadId"
   else
     fail "session_state bash mode" "mode='$SESSION_MODE', threadId='$SESSION_THREAD_ID'"
@@ -1123,8 +1123,8 @@ test_session_state_isolation() {
   rm -rf "$test_tmp"
 
   # Save two different sessions
-  codex_save_session_state "task-A" "mcp" "thread-A" "read-only" "codex-leads" > /dev/null
-  codex_save_session_state "task-B" "bash" "" "workspace-write" "claude-leads" > /dev/null
+  codex_save_session_state "task-A" "exec" "aaaaaaaa-2222-4222-8222-222222222222" "read-only" "codex-leads" > /dev/null
+  codex_save_session_state "task-B" "exec" "" "workspace-write" "claude-leads" > /dev/null
 
   # Load task-A and verify
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
@@ -1139,13 +1139,13 @@ test_session_state_isolation() {
   local thread_b="$SESSION_THREAD_ID"
 
   # Verify isolation
-  if [ "$mode_a" = "mcp" ] && [ "$thread_a" = "thread-A" ]; then
+  if [ "$mode_a" = "exec" ] && [ "$thread_a" = "aaaaaaaa-2222-4222-8222-222222222222" ]; then
     pass "session_isolation: task-A has correct state"
   else
     fail "session_isolation task-A" "mode='$mode_a', threadId='$thread_a'"
   fi
 
-  if [ "$mode_b" = "bash" ] && [ -z "$thread_b" ]; then
+  if [ "$mode_b" = "exec" ] && [ -z "$thread_b" ]; then
     pass "session_isolation: task-B has correct state"
   else
     fail "session_isolation task-B" "mode='$mode_b', threadId='$thread_b'"
@@ -1252,39 +1252,39 @@ test_plan004_hardening() {
   # --- Case 3: Save/load with a workflow value containing a double-quote ---
   #             The JSON must not be corrupted; SESSION_MODE must load correctly.
   local task3="plan004-quoted-$$"
-  codex_save_session_state "$task3" "mcp" "thread-xyz" "read-only" 'work"flow' > /dev/null
+  codex_save_session_state "$task3" "exec" "aaaaaaaa-6666-4666-8666-666666666666" "read-only" 'work"flow' > /dev/null
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
   local load_exit3=0
   codex_load_session_state "$task3" > /dev/null 2>&1 || load_exit3=$?
-  if [ "$load_exit3" -eq 0 ] && [ "$SESSION_MODE" = "mcp" ]; then
+  if [ "$load_exit3" -eq 0 ] && [ "$SESSION_MODE" = "exec" ]; then
     pass "save/load: quoted workflow value — SESSION_MODE correct"
   else
-    fail "save/load quoted workflow" "Expected exit 0 mode=mcp, got exit=$load_exit3 mode='$SESSION_MODE'"
+    fail "save/load quoted workflow" "Expected exit 0 mode=exec, got exit=$load_exit3 mode='$SESSION_MODE'"
   fi
 
   # --- Case 4: save_thread with a quoted thread value must not break the state file ---
   local task4="plan004-thread-quote-$$"
-  codex_save_session_state "$task4" "mcp" "t-abc" "read-only" "claude-leads" > /dev/null
+  codex_save_session_state "$task4" "exec" "aaaaaaaa-5555-4555-8555-555555555555" "read-only" "claude-leads" > /dev/null
   codex_save_thread "$task4" "threadB" 'value"with"quotes' > /dev/null || true
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
   local load_exit4=0
   codex_load_session_state "$task4" > /dev/null 2>&1 || load_exit4=$?
-  if [ "$load_exit4" -eq 0 ] && [ "$SESSION_MODE" = "mcp" ]; then
+  if [ "$load_exit4" -eq 0 ] && [ "$SESSION_MODE" = "exec" ]; then
     pass "save_thread: quoted value — state file stays valid"
   else
-    fail "save_thread quoted value" "Expected exit 0 mode=mcp, got exit=$load_exit4 mode='$SESSION_MODE'"
+    fail "save_thread quoted value" "Expected exit 0 mode=exec, got exit=$load_exit4 mode='$SESSION_MODE'"
   fi
 
   # --- Case 5: thread name anchoring — value containing another thread name must not collide ---
   # threadC's value deliberately contains the string "threadB"
   local task5="plan004-anchor-$$"
-  codex_save_session_state "$task5" "mcp" "t-main" "read-only" "claude-leads" > /dev/null
+  codex_save_session_state "$task5" "exec" "aaaaaaaa-3333-4333-8333-333333333333" "read-only" "claude-leads" > /dev/null
   codex_save_thread "$task5" "threadB" "thread-B-123" > /dev/null || true
   codex_save_thread "$task5" "threadC" "contains-threadB-value" > /dev/null || true
 
   local loaded_c5 loaded_b5
-  loaded_c5=$(codex_load_thread "$task5" "threadC")
-  loaded_b5=$(codex_load_thread "$task5" "threadB")
+  loaded_c5=$(_codex_load_thread_raw "$task5" "threadC")
+  loaded_b5=$(_codex_load_thread_raw "$task5" "threadB")
 
   if [ "$loaded_c5" = "contains-threadB-value" ] && [ "$loaded_b5" = "thread-B-123" ]; then
     pass "thread anchor: threadC value containing 'threadB' does not collide"
@@ -1295,8 +1295,8 @@ test_plan004_hardening() {
   # Also check that updating threadB does not destroy threadC
   codex_save_thread "$task5" "threadB" "thread-B-updated" > /dev/null || true
   local loaded_b5u loaded_c5u
-  loaded_b5u=$(codex_load_thread "$task5" "threadB")
-  loaded_c5u=$(codex_load_thread "$task5" "threadC")
+  loaded_b5u=$(_codex_load_thread_raw "$task5" "threadB")
+  loaded_c5u=$(_codex_load_thread_raw "$task5" "threadC")
   if [ "$loaded_b5u" = "thread-B-updated" ] && [ "$loaded_c5u" = "contains-threadB-value" ]; then
     pass "thread anchor: updating threadB preserves threadC"
   else
@@ -1309,8 +1309,8 @@ test_plan004_hardening() {
   codex_save_thread "$task5" "threadD" 'see "threadB" ref' > /dev/null || true
   codex_save_thread "$task5" "threadB" "thread-B-final" > /dev/null || true
   local loaded_d5 loaded_b5f
-  loaded_d5=$(codex_load_thread "$task5" "threadD")
-  loaded_b5f=$(codex_load_thread "$task5" "threadB")
+  loaded_d5=$(_codex_load_thread_raw "$task5" "threadD")
+  loaded_b5f=$(_codex_load_thread_raw "$task5" "threadB")
   if [ "$loaded_d5" = 'see \"threadB\" ref' ] && [ "$loaded_b5f" = "thread-B-final" ]; then
     pass "thread anchor: quoted 'threadB' inside threadD value survives threadB update"
   else
@@ -1323,8 +1323,8 @@ test_plan004_hardening() {
   codex_save_thread "$task5" "threadE" "threadB" > /dev/null || true
   codex_save_thread "$task5" "threadB" "thread-B-final2" > /dev/null || true
   local loaded_e5 loaded_b5x
-  loaded_e5=$(codex_load_thread "$task5" "threadE")
-  loaded_b5x=$(codex_load_thread "$task5" "threadB")
+  loaded_e5=$(_codex_load_thread_raw "$task5" "threadE")
+  loaded_b5x=$(_codex_load_thread_raw "$task5" "threadB")
   if [ "$loaded_e5" = "threadB" ] && [ "$loaded_b5x" = "thread-B-final2" ]; then
     pass "thread anchor: value equal to another thread name survives update and loads correctly"
   else
@@ -1373,7 +1373,7 @@ test_named_threads() {
   rm -rf "$test_tmp"
 
   # Create session state first
-  codex_save_session_state "thread-test" "mcp" "thread-main" "read-only" "claude-leads" > /dev/null
+  codex_save_session_state "thread-test" "exec" "aaaaaaaa-4444-4444-8444-444444444444" "read-only" "claude-leads" > /dev/null
 
   # Test 1: Save threadB
   local save_exit=0
@@ -1386,7 +1386,7 @@ test_named_threads() {
 
   # Test 2: Load threadB
   local loaded_b
-  loaded_b=$(codex_load_thread "thread-test" "threadB")
+  loaded_b=$(_codex_load_thread_raw "thread-test" "threadB")
   if [ "$loaded_b" = "thread-B-123" ]; then
     pass "load_thread: threadB correct"
   else
@@ -1398,8 +1398,8 @@ test_named_threads() {
 
   # Test 4: Both threads preserved
   local loaded_b2 loaded_c
-  loaded_b2=$(codex_load_thread "thread-test" "threadB")
-  loaded_c=$(codex_load_thread "thread-test" "threadC")
+  loaded_b2=$(_codex_load_thread_raw "thread-test" "threadB")
+  loaded_c=$(_codex_load_thread_raw "thread-test" "threadC")
   if [ "$loaded_b2" = "thread-B-123" ] && [ "$loaded_c" = "thread-C-456" ]; then
     pass "save_thread: both threads preserved"
   else
@@ -1409,7 +1409,7 @@ test_named_threads() {
   # Test 5: Update existing thread
   codex_save_thread "thread-test" "threadB" "thread-B-updated" || true
   local loaded_b3
-  loaded_b3=$(codex_load_thread "thread-test" "threadB")
+  loaded_b3=$(_codex_load_thread_raw "thread-test" "threadB")
   if [ "$loaded_b3" = "thread-B-updated" ]; then
     pass "save_thread: update existing thread"
   else
@@ -1418,7 +1418,7 @@ test_named_threads() {
 
   # Test 6: Load from non-existent task
   local loaded_none
-  loaded_none=$(codex_load_thread "nonexistent-task" "threadB" 2>/dev/null || true)
+  loaded_none=$(_codex_load_thread_raw "nonexistent-task" "threadB" 2>/dev/null || true)
   if [ -z "$loaded_none" ]; then
     pass "load_thread: non-existent task → empty"
   else
@@ -1428,17 +1428,17 @@ test_named_threads() {
   # Test 7: Original session fields still intact after thread saves
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
   codex_load_session_state "thread-test" > /dev/null
-  if [ "$SESSION_MODE" = "mcp" ] && [ "$SESSION_THREAD_ID" = "thread-main" ]; then
+  if [ "$SESSION_MODE" = "exec" ] && [ "$SESSION_THREAD_ID" = "aaaaaaaa-4444-4444-8444-444444444444" ]; then
     pass "save_thread: does not corrupt session fields"
   else
     fail "save_thread corruption" "mode='$SESSION_MODE', threadId='$SESSION_THREAD_ID'"
   fi
 
   # Test 8: Re-saving session state preserves named threads
-  codex_save_session_state "thread-test" "mcp" "thread-main" "workspace-write" "claude-leads" > /dev/null
+  codex_save_session_state "thread-test" "exec" "aaaaaaaa-4444-4444-8444-444444444444" "workspace-write" "claude-leads" > /dev/null
   local loaded_b_after loaded_c_after
-  loaded_b_after=$(codex_load_thread "thread-test" "threadB")
-  loaded_c_after=$(codex_load_thread "thread-test" "threadC")
+  loaded_b_after=$(_codex_load_thread_raw "thread-test" "threadB")
+  loaded_c_after=$(_codex_load_thread_raw "thread-test" "threadC")
   if [ "$loaded_b_after" = "thread-B-updated" ] && [ "$loaded_c_after" = "thread-C-456" ]; then
     pass "save_session_state: preserves named threads on re-save"
   else
@@ -1476,17 +1476,465 @@ test_malformed_state_file() {
   fi
 
   # Test 2: Partial JSON (has mode but missing other fields)
-  echo '{"mode": "mcp"}' > "$test_tmp/codex-session-partial-task.json"
+  echo '{"mode": "exec"}' > "$test_tmp/codex-session-partial-task.json"
   SESSION_MODE="" SESSION_THREAD_ID="" SESSION_SANDBOX="" SESSION_WORKFLOW=""
   local exit2=0
   codex_load_session_state "partial-task" > /dev/null 2>&1 || exit2=$?
-  if [ "$exit2" -eq 0 ] && [ "$SESSION_MODE" = "mcp" ]; then
+  if [ "$exit2" -eq 0 ] && [ "$SESSION_MODE" = "exec" ]; then
     pass "malformed: partial JSON → loads mode, tolerates missing fields"
   else
-    fail "malformed partial" "Expected success with mode=mcp, got exit=$exit2 mode='$SESSION_MODE'"
+    fail "malformed partial" "Expected success with mode=exec, got exit=$exit2 mode='$SESSION_MODE'"
   fi
 
   # Cleanup
+  rm -rf "$test_tmp"
+  CODEX_TMP_DIR="$orig_tmp_dir"
+}
+
+# ==============================================================================
+# Test: UUID / sandbox validators and codex_extract_thread_id
+# ==============================================================================
+test_extract_thread_id() {
+  echo ""
+  echo "=== Testing: codex_is_valid_uuid / codex_is_valid_sandbox / codex_extract_thread_id ==="
+
+  local u1="01a0a549-84eb-7dd0-bc82-a0b21d82a259"
+  local u2="22222222-2222-4222-8222-222222222222"
+
+  if codex_is_valid_uuid "$u1" && ! codex_is_valid_uuid "not-a-uuid-name" \
+    && ! codex_is_valid_uuid "01a0a54984eb7dd0bc82a0b21d82a259" \
+    && ! codex_is_valid_uuid "01a0a549-84eb-7dd0-bc82-a0b21d82a2590" \
+    && ! codex_is_valid_uuid ""; then
+    pass "is_valid_uuid: accepts 8-4-4-4-12 only"
+  else
+    fail "is_valid_uuid" "unexpected validation result"
+  fi
+
+  if codex_is_valid_sandbox read-only && codex_is_valid_sandbox workspace-write \
+    && codex_is_valid_sandbox danger-full-access && ! codex_is_valid_sandbox readonly \
+    && ! codex_is_valid_sandbox ""; then
+    pass "is_valid_sandbox: accepts codex sandbox modes only"
+  else
+    fail "is_valid_sandbox" "unexpected validation result"
+  fi
+
+  local test_tmp
+  test_tmp=$(mktemp -d)
+  local f="$test_tmp/events.jsonl"
+  local got rc
+
+  printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$u1\"}" '{"type":"turn.started"}' '{"type":"turn.completed"}' > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$got" = "$u1" ]; then
+    pass "extract_thread_id: single thread.started"
+  else
+    fail "extract_thread_id single" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$u1\"}" "{\"type\":\"thread.started\",\"thread_id\":\"$u1\"}" > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$got" = "$u1" ]; then
+    pass "extract_thread_id: duplicate identical ids are not a conflict"
+  else
+    fail "extract_thread_id duplicate" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$u1\"}" "{\"type\":\"thread.started\",\"thread_id\":\"$u2\"}" > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -ne 0 ] && [ -z "$got" ]; then
+    pass "extract_thread_id: conflicting ids → failure"
+  else
+    fail "extract_thread_id conflicting" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' '{"type":"turn.started"}' '{"type":"turn.completed"}' > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -ne 0 ] && [ -z "$got" ]; then
+    pass "extract_thread_id: no thread.started → failure"
+  else
+    fail "extract_thread_id none" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' '{"type":"thread.started","thread_id":"thread-name"}' > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -ne 0 ] && [ -z "$got" ]; then
+    pass "extract_thread_id: non-UUID id → failure"
+  else
+    fail "extract_thread_id non-uuid" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' "garbage {\"type\":\"thread.started\",\"thread_id\":\"$u1\"}" "{\"type\":\"item.completed\",\"item\":{\"text\":\"{\\\"type\\\":\\\"thread.started\\\",\\\"thread_id\\\":\\\"$u2\\\"}\"}}" > "$f"
+  rc=0; got=$(codex_extract_thread_id "$f") || rc=$?
+  if [ "$rc" -ne 0 ] && [ -z "$got" ]; then
+    pass "extract_thread_id: ignores ids not at line start (broken line / message text)"
+  else
+    fail "extract_thread_id anchored" "rc=$rc got='$got'"
+  fi
+
+  rm -rf "$test_tmp"
+}
+
+# ==============================================================================
+# Test: codex_run_exec_session (with mock codex)
+# ==============================================================================
+test_run_exec_session() {
+  echo ""
+  echo "=== Testing: codex_run_exec_session (mock codex) ==="
+
+  local test_tmp
+  test_tmp=$(mktemp -d)
+  local mock_dir="$test_tmp/mock-bin"
+  mkdir -p "$mock_dir"
+  local orig_path="$PATH"
+
+  cat > "$mock_dir/codex" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$MOCK_ARGV"
+out=""; resume_id=""; prev=""
+for a in "$@"; do
+  [ "$prev" = "-o" ] && out="$a"
+  [ "$prev" = "resume" ] && resume_id="$a"
+  prev="$a"
+done
+cat > /dev/null
+U1=11111111-1111-4111-8111-111111111111
+U2=22222222-2222-4222-8222-222222222222
+tid="${resume_id:-$U1}"
+ev_start() { echo "{\"type\":\"thread.started\",\"thread_id\":\"$1\"}"; echo '{"type":"turn.started"}'; }
+ev_done() { echo '{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}'; echo '{"type":"turn.completed","usage":{}}'; }
+case "$MOCK_SCENARIO" in
+  ok) echo "WARNING: mock noise" >&2; ev_start "$tid"; ev_done; printf '%s' "${MOCK_BODY:-OK}" > "$out" ;;
+  not_found) echo "Error: thread/resume: thread/resume failed: no rollout found for thread id $resume_id (code -32600)" >&2; exit 1 ;;
+  not_found_other) echo "Error: thread/resume: thread/resume failed: no rollout found for thread id $U2 (code -32600)" >&2; exit 1 ;;
+  not_found_with_events) ev_start "$tid"; echo "Error: no rollout found for thread id $resume_id" >&2; exit 1 ;;
+  archived) echo "Error: thread/resume: thread/resume failed: session $resume_id is archived. (code -32600)" >&2; exit 1 ;;
+  started_fail) ev_start "$tid"; exit 1 ;;
+  no_completed) ev_start "$tid"; printf OK > "$out" ;;
+  malformed) ev_start "$tid"; echo 'garbage {"type":"turn.completed"}'; ev_done; printf OK > "$out" ;;
+  empty_exit0) : ;;
+  empty_output) ev_start "$tid"; ev_done ;;
+  mismatch) ev_start "$U2"; ev_done; printf OK > "$out" ;;
+  conflicting) ev_start "$U1"; ev_start "$U2"; ev_done; printf OK > "$out" ;;
+  fail_completed_empty) ev_start "$tid"; ev_done; exit 1 ;;
+esac
+MOCK
+  chmod +x "$mock_dir/codex"
+  PATH="$mock_dir:/usr/bin:/bin"
+  export MOCK_ARGV="$test_tmp/argv"
+
+  local prompt="$test_tmp/prompt.txt"
+  local out="$test_tmp/out.md"
+  echo "prompt" > "$prompt"
+  local u1="11111111-1111-4111-8111-111111111111"
+  local got rc
+
+  # --- rc=0: new session ---
+  rm -f "$MOCK_ARGV"
+  export MOCK_SCENARIO=ok MOCK_BODY="OK"
+  rc=0; got=$(codex_run_exec_session "$prompt" "$out" "read-only" "m1" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$got" = "$u1" ]; then
+    pass "run_exec_session: new session → rc=0, prints only thread id"
+  else
+    fail "run_exec_session new" "rc=$rc got='$got'"
+  fi
+  if [ "$(cat "$MOCK_ARGV")" = "exec -s read-only -m m1 --json -o $out -" ]; then
+    pass "run_exec_session: new session argv"
+  else
+    fail "run_exec_session new argv" "got '$(cat "$MOCK_ARGV")'"
+  fi
+  if grep -q "mock noise" "$test_tmp/out.stderr.log" && ! grep -q "mock noise" "$test_tmp/out.jsonl" \
+    && grep -q '"turn.completed"' "$test_tmp/out.jsonl"; then
+    pass "run_exec_session: stdout JSONL and stderr are separated"
+  else
+    fail "run_exec_session separation" "stderr/jsonl contents unexpected"
+  fi
+
+  # --- rc=0: resume, argv order ---
+  rm -f "$MOCK_ARGV"
+  rc=0; got=$(codex_run_exec_session "$prompt" "$out" "workspace-write" "" "$u1" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$got" = "$u1" ] \
+    && [ "$(cat "$MOCK_ARGV")" = "exec -s workspace-write resume $u1 --json -o $out -" ]; then
+    pass "run_exec_session: resume → rc=0, -s placed between exec and resume"
+  else
+    fail "run_exec_session resume" "rc=$rc got='$got' argv='$(cat "$MOCK_ARGV" 2>/dev/null)'"
+  fi
+
+  # --- output body preserved verbatim ---
+  local body
+  body=$(printf '日本語 "quoted" back\\slash\nline2')
+  export MOCK_BODY="$body"
+  rc=0; codex_run_exec_session "$prompt" "$out" "read-only" "" > /dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$(cat "$out")" = "$body" ]; then
+    pass "run_exec_session: output body (Japanese/quotes/backslash/newline) preserved"
+  else
+    fail "run_exec_session body" "rc=$rc body='$(cat "$out" 2>/dev/null)'"
+  fi
+  export MOCK_BODY="OK"
+
+  # --- rc=2: preconditions (codex must not be started) ---
+  rm -f "$MOCK_ARGV"
+  local rc_a=0 rc_b=0 rc_c=0 rc_d=0 rc_e=0
+  codex_run_exec_session "$test_tmp/missing.txt" "$out" "read-only" "" > /dev/null 2>&1 || rc_a=$?
+  codex_run_exec_session "$prompt" "$out" "read-only" "" "not-a-uuid-name" > /dev/null 2>&1 || rc_b=$?
+  codex_run_exec_session "$prompt" "$out" "readonly" "" > /dev/null 2>&1 || rc_c=$?
+  codex_run_exec_session "$prompt" "$prompt" "read-only" "" > /dev/null 2>&1 || rc_d=$?
+  mkdir -p "$test_tmp/dir-out.md"
+  codex_run_exec_session "$prompt" "$test_tmp/dir-out.md" "read-only" "" > /dev/null 2>&1 || rc_e=$?
+  if [ "$rc_a" -eq 2 ] && [ "$rc_b" -eq 2 ] && [ "$rc_c" -eq 2 ] && [ "$rc_d" -eq 2 ] && [ "$rc_e" -eq 2 ] \
+    && [ ! -e "$MOCK_ARGV" ] && [ -f "$prompt" ]; then
+    pass "run_exec_session: rc=2 for missing prompt/non-UUID id/bad sandbox/path collision/uncleanable output, codex not started"
+  else
+    fail "run_exec_session rc=2" "rc=$rc_a/$rc_b/$rc_c/$rc_d/$rc_e argv_exists=$([ -e "$MOCK_ARGV" ] && echo y || echo n)"
+  fi
+
+  # --- classification table ---
+  local scenario expected thread label
+  while IFS='|' read -r scenario thread expected label; do
+    [ -n "$scenario" ] || continue
+    export MOCK_SCENARIO="$scenario"
+    rc=0; got=$(codex_run_exec_session "$prompt" "$out" "read-only" "" "$thread" 2>/dev/null) || rc=$?
+    if [ "$rc" -eq "$expected" ] && { [ "$expected" -eq 0 ] || [ -z "$got" ]; }; then
+      pass "run_exec_session: $label → rc=$expected"
+    else
+      fail "run_exec_session $label" "expected rc=$expected, got rc=$rc out='$got'"
+    fi
+  done << EOT
+not_found|$u1|3|resume not found (exit!=0, empty JSONL, matching id)
+not_found_other|$u1|4|not-found message for a different id
+not_found_with_events|$u1|4|not-found message but JSONL non-empty
+archived|$u1|4|archived thread (unknown message)
+started_fail|$u1|4|turn started then codex failed
+no_completed||4|exit 0 without turn.completed
+malformed||4|malformed JSONL line containing turn.completed
+empty_exit0||4|exit 0 with empty JSONL
+fail_completed_empty||4|exit!=0 + turn.completed + empty output (composite)
+empty_output||5|completed with empty output
+mismatch|$u1|5|resumed thread id mismatch
+conflicting||5|conflicting thread ids
+EOT
+
+  # --- output paths that resolve to the prompt must never delete it ---
+  rm -f "$MOCK_ARGV"
+  local alias_prompt="$test_tmp/req.md"
+  echo "keep me" > "$alias_prompt"
+  ln -sf "$alias_prompt" "$test_tmp/link.md"
+  local rc_alias=0 rc_link=0 rc_nodir=0
+  (cd "$test_tmp" && codex_run_exec_session "req.md" "./req.md" "read-only" "" > /dev/null 2>&1) || rc_alias=$?
+  codex_run_exec_session "$alias_prompt" "$test_tmp/link.md" "read-only" "" > /dev/null 2>&1 || rc_link=$?
+  codex_run_exec_session "$alias_prompt" "$test_tmp/no-such-dir/out.md" "read-only" "" > /dev/null 2>&1 || rc_nodir=$?
+  if [ "$rc_alias" -eq 2 ] && [ "$rc_link" -eq 2 ] && [ "$rc_nodir" -eq 2 ] \
+    && [ "$(cat "$alias_prompt")" = "keep me" ] && [ ! -e "$MOCK_ARGV" ]; then
+    pass "run_exec_session: rc=2 for ./alias path / symlink to prompt / missing output dir; prompt kept"
+  else
+    fail "run_exec_session path aliasing" "rc=$rc_alias/$rc_link/$rc_nodir prompt='$(cat "$alias_prompt" 2>/dev/null)'"
+  fi
+
+  # --- zsh with user aliases/functions (Claude Code's Bash tool may run zsh) ---
+  # Regression: a loop variable named `path` clobbered $PATH in zsh (tied array),
+  # so rm/codex were not found and the call failed with rc=2/4. Interactive
+  # aliases/functions (rm, grep) must not change the result either.
+  if command -v zsh &>/dev/null; then
+    local zsh_script="$test_tmp/zsh-run.zsh"
+    cat > "$zsh_script" << ZSH
+alias rm='set -f; true'
+grep() { return 1; }
+source "$HELPERS"
+rc=0
+tid=\$(codex_run_exec_session "$prompt" "$test_tmp/zsh-out.md" read-only "") || rc=\$?
+echo "\$rc \$tid"
+ZSH
+    local zsh_result
+    zsh_result=$(MOCK_SCENARIO=ok PATH="$mock_dir:/usr/bin:/bin" zsh -f "$zsh_script" 2>/dev/null || true)
+    if [ "$zsh_result" = "0 $u1" ]; then
+      pass "run_exec_session: works when sourced in zsh with rm alias / grep function overrides"
+    else
+      fail "run_exec_session zsh" "got '$zsh_result'"
+    fi
+  else
+    skip "run_exec_session zsh" "zsh not installed"
+  fi
+
+  # --- stale output must not be reported as success ---
+  echo "STALE" > "$out"
+  export MOCK_SCENARIO=empty_output
+  rc=0; codex_run_exec_session "$prompt" "$out" "read-only" "" > /dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 5 ] && [ ! -s "$out" ]; then
+    pass "run_exec_session: stale output removed before run"
+  else
+    fail "run_exec_session stale" "rc=$rc out='$(cat "$out" 2>/dev/null)'"
+  fi
+
+  PATH="$orig_path"
+  unset MOCK_SCENARIO MOCK_BODY MOCK_ARGV
+  rm -rf "$test_tmp"
+}
+
+# ==============================================================================
+# Test: legacy session state migration and named exec threads
+# ==============================================================================
+test_state_migration() {
+  echo ""
+  echo "=== Testing: session state migration / codex_save_thread_session / codex_load_thread(_sandbox) ==="
+
+  local orig_tmp_dir="${CODEX_TMP_DIR:-}"
+  # CODEX_TMP_DIR is resolved relative to $(pwd) by codex_ensure_tmp_dir
+  local test_tmp=".test-tmp-migrate-$$"
+  mkdir -p "$test_tmp"
+  CODEX_TMP_DIR="$test_tmp"
+
+  local u1="11111111-1111-4111-8111-111111111111"
+  local u2="22222222-2222-4222-8222-222222222222"
+  local u3="33333333-3333-4333-8333-333333333333"
+  local legacy='{
+  "mode": "mcp",
+  "threadId": "mcp-thread-main",
+  "threads": {
+    "threadB": "mcp-thread-B"
+  },
+  "sandbox": "read-only",
+  "workflow": "claude-leads",
+  "taskId": "legacy",
+  "updatedAt": "2026-01-01T00:00:00+00:00"
+}'
+  local got rc
+
+  # load_thread first must still migrate
+  printf '%s\n' "$legacy" > "$test_tmp/codex-session-legacy1.json"
+  rc=0; got=$(codex_load_thread "legacy1" "threadB") || rc=$?
+  if [ "$rc" -eq 1 ] && [ -z "$got" ] && grep -q '"mode": "exec"' "$test_tmp/codex-session-legacy1.json" \
+    && ! grep -q 'mcp-thread' "$test_tmp/codex-session-legacy1.json"; then
+    pass "migration: codex_load_thread migrates legacy mcp file and returns no old id"
+  else
+    fail "migration via load_thread" "rc=$rc got='$got'"
+  fi
+
+  printf '%s\n' "$legacy" > "$test_tmp/codex-session-legacy2.json"
+  SESSION_MODE="" SESSION_THREAD_ID="" SESSION_WORKFLOW=""
+  rc=0; codex_load_session_state "legacy2" > /dev/null || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$SESSION_MODE" = "exec" ] && [ -z "$SESSION_THREAD_ID" ] && [ "$SESSION_WORKFLOW" = "claude-leads" ]; then
+    pass "migration: codex_load_session_state → mode=exec, threadId cleared, workflow kept"
+  else
+    fail "migration via load_session_state" "rc=$rc mode='$SESSION_MODE' thread='$SESSION_THREAD_ID' wf='$SESSION_WORKFLOW'"
+  fi
+
+  printf '%s\n' "$legacy" > "$test_tmp/codex-session-legacy3.json"
+  codex_save_session_state "legacy3" "exec" "" "read-only" "claude-leads" > /dev/null
+  if ! grep -q 'mcp-thread' "$test_tmp/codex-session-legacy3.json"; then
+    pass "migration: re-save does not carry legacy threads over"
+  else
+    fail "migration re-save" "legacy thread still present"
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    mkdir -p "$test_tmp/ro"
+    printf '%s\n' "$legacy" > "$test_tmp/ro/codex-session-legacy4.json"
+    chmod 555 "$test_tmp/ro"
+    CODEX_TMP_DIR="$test_tmp/ro"
+    rc=0; got=$(codex_load_thread "legacy4" "threadB") || rc=$?
+    local rc2=0
+    codex_load_session_state "legacy4" > /dev/null 2>&1 || rc2=$?
+    CODEX_TMP_DIR="$test_tmp"
+    chmod 755 "$test_tmp/ro"
+    if [ "$rc" -eq 2 ] && [ -z "$got" ] && [ "$rc2" -eq 2 ]; then
+      pass "migration: write failure → rc=2 and no old id returned"
+    else
+      fail "migration write failure" "load_thread rc=$rc got='$got' load_session_state rc=$rc2"
+    fi
+  else
+    skip "migration write failure" "running as root"
+  fi
+
+  # named thread round trip
+  codex_save_session_state "named" "exec" "" "read-only" "claude-leads" > /dev/null
+  codex_save_thread_session "named" "threadB" "$u1" "read-only"
+  codex_save_thread_session "named" "threadC" "$u2" "workspace-write"
+  codex_save_thread_session "named" "threadB" "$u3" "read-only"
+  codex_save_session_state "named" "exec" "" "workspace-write" "claude-leads" > /dev/null
+  local b bs c cs
+  b=$(codex_load_thread "named" "threadB"); bs=$(codex_load_thread_sandbox "named" "threadB")
+  c=$(codex_load_thread "named" "threadC"); cs=$(codex_load_thread_sandbox "named" "threadC")
+  if [ "$b" = "$u3" ] && [ "$bs" = "read-only" ] && [ "$c" = "$u2" ] && [ "$cs" = "workspace-write" ]; then
+    pass "named threads: save B/C → update B → re-save session → both uuid/sandbox round-trip"
+  else
+    fail "named threads round trip" "B=$b/$bs C=$c/$cs"
+  fi
+
+  rc=0; codex_save_thread_session "named" "threadX" "not-a-uuid" "read-only" || rc=$?
+  local rc_s=0
+  codex_save_thread_session "named" "threadX" "$u1" "readonly" || rc_s=$?
+  if [ "$rc" -eq 1 ] && [ "$rc_s" -eq 1 ] && [ -z "$(_codex_load_thread_raw "named" "threadX")" ]; then
+    pass "named threads: save_thread_session rejects invalid uuid/sandbox"
+  else
+    fail "save_thread_session validation" "rc=$rc rc_s=$rc_s"
+  fi
+
+  local value vrc all_ok=1
+  for value in "$u1" "${u1}|bogus" "${u1}|read-only|extra" "not-a-uuid|read-only"; do
+    codex_save_thread "named" "threadY" "$value"
+    vrc=0; got=$(codex_load_thread "named" "threadY") || vrc=$?
+    if [ "$vrc" -ne 1 ] || [ -n "$got" ]; then
+      all_ok=0
+      fail "load_thread malformed value" "value='$value' rc=$vrc got='$got'"
+    fi
+  done
+  if [ "$all_ok" -eq 1 ]; then
+    pass "named threads: legacy raw id / bad sandbox / extra separator / bad uuid → rc=1, empty"
+  fi
+
+  # load_session_state: stale globals cleared, invalid values never exposed
+  SESSION_THREAD_ID="$u1" SESSION_SANDBOX="read-only"
+  rc=0; codex_load_session_state "no-such-task" > /dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ] && [ -z "$SESSION_THREAD_ID" ] && [ -z "$SESSION_SANDBOX" ]; then
+    pass "load_session_state: missing file → rc=1 and previous globals cleared"
+  else
+    fail "load_session_state stale globals" "rc=$rc thread='$SESSION_THREAD_ID' sandbox='$SESSION_SANDBOX'"
+  fi
+
+  codex_save_session_state "badvals" "exec" "not-a-uuid" "readonly" "codex-leads" > /dev/null
+  rc=0; codex_load_session_state "badvals" > /dev/null || rc=$?
+  local lst_rc=0
+  got=$(codex_load_session_thread "badvals" "read-only") || lst_rc=$?
+  if [ "$rc" -eq 0 ] && [ -z "$SESSION_THREAD_ID" ] && [ -z "$SESSION_SANDBOX" ] && [ "$lst_rc" -eq 1 ] && [ -z "$got" ]; then
+    pass "load_session_state: invalid threadId/sandbox emptied; load_session_thread → rc=1"
+  else
+    fail "load_session_state invalid values" "rc=$rc thread='$SESSION_THREAD_ID' sandbox='$SESSION_SANDBOX' lst_rc=$lst_rc got='$got'"
+  fi
+
+  codex_save_session_state "mainthread" "exec" "$u2" "read-only" "codex-leads" > /dev/null
+  local m_ok_rc=0 m_mis_rc=0 m_none_rc=0 m_ok m_mis
+  m_ok=$(codex_load_session_thread "mainthread" "read-only") || m_ok_rc=$?
+  m_mis=$(codex_load_session_thread "mainthread" "workspace-write") || m_mis_rc=$?
+  codex_load_session_thread "no-such-task" "read-only" > /dev/null || m_none_rc=$?
+  if [ "$m_ok_rc" -eq 0 ] && [ "$m_ok" = "$u2" ] && [ "$m_mis_rc" -eq 1 ] && [ -z "$m_mis" ] && [ "$m_none_rc" -eq 1 ]; then
+    pass "load_session_thread: 0 for matching sandbox, 1 for sandbox mismatch / no state"
+  else
+    fail "load_session_thread" "ok=$m_ok_rc/$m_ok mismatch=$m_mis_rc/$m_mis none=$m_none_rc"
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    chmod 000 "$test_tmp/codex-session-named.json" "$test_tmp/codex-session-mainthread.json"
+    local r_thread_rc=0 r_session_rc=0 r_got
+    r_got=$(codex_load_thread "named" "threadB") || r_thread_rc=$?
+    codex_load_session_thread "mainthread" "read-only" > /dev/null 2>&1 || r_session_rc=$?
+    chmod 644 "$test_tmp/codex-session-named.json" "$test_tmp/codex-session-mainthread.json"
+    if [ "$r_thread_rc" -eq 2 ] && [ -z "$r_got" ] && [ "$r_session_rc" -eq 2 ]; then
+      pass "loaders: unreadable state file → rc=2 (not 'no thread')"
+    else
+      fail "loaders read failure" "load_thread rc=$r_thread_rc got='$r_got' load_session_thread rc=$r_session_rc"
+    fi
+  else
+    skip "loaders read failure" "running as root"
+  fi
+
+  rc=0; got=$(codex_load_thread "named" "threadMissing") || rc=$?
+  local rc_nf=0
+  codex_load_thread "no-such-task" "threadB" > /dev/null || rc_nf=$?
+  if [ "$rc" -eq 1 ] && [ -z "$got" ] && [ "$rc_nf" -eq 1 ]; then
+    pass "named threads: missing thread / missing state file → rc=1"
+  else
+    fail "load_thread missing" "rc=$rc rc_nf=$rc_nf got='$got'"
+  fi
+
   rm -rf "$test_tmp"
   CODEX_TMP_DIR="$orig_tmp_dir"
 }
@@ -1533,6 +1981,11 @@ main() {
   test_plan004_hardening
   test_named_threads
   test_malformed_state_file
+
+  # Stateful exec (codex exec --json + exec resume) tests
+  test_extract_thread_id
+  test_run_exec_session
+  test_state_migration
 
   # Summary
   echo ""

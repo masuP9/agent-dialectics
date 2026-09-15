@@ -2,7 +2,7 @@
 name: dialectic-loop
 description: Validate and refine an empirical claim by deriving predictions and testing them against a real corpus (deductive → inductive → arbiter loop)
 argument-hint: [claim] [--corpus PATH/GLOB] [--mode codex|claude-only] [--max-rounds N] [--rotate] [--abduce]
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion
 ---
 
 # Dialectic Loop
@@ -51,21 +51,21 @@ fi
 
 Run this step **only** when `variant = codex-abduction`. It has two sub-stages on a **dedicated abduction thread** (kept separate from the later induction thread).
 
-**0a. Candidate generation (Codex).** Fill `references/abduction-template.md` and start a **new** Codex thread (this is the *abduction* thread):
+**0a. Candidate generation (Codex).** Fill `references/abduction-template.md` (with `$LANG_DIRECTIVE` prepended, derived as in Step 4) into a prompt file and start a **new** read-only Codex thread (this is the *abduction* thread):
 
-```
-mcp__codex__codex(
-  prompt: "<filled abduction-template>",
-  developer-instructions: "<LANG_DIRECTIVE>",   // derive as in Step 4
-  sandbox: "read-only",
-  cwd: "<corpus root>"
-)
+```bash
+export CODEX_SKILL_CONTEXT=1   # plus the Step 0 helper-loading block (own shell per block)
+PROMPT_FILE=$(codex_tmp_path "dialectic-loop-abduction-prompt.txt")
+OUTPUT_FILE=$(codex_tmp_path "dialectic-loop-abduction-output.md")
+# write the filled template into "$PROMPT_FILE" first (cat > "$PROMPT_FILE" <<EOF ... EOF)
+rc=0
+ABDUCTION_THREAD=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "") || rc=$?
+echo "codex rc=$rc thread=$ABDUCTION_THREAD"
 ```
 
 - Demand **multiple competing candidate hypotheses** (not one), each with the observations that suggest it, an alternative explanation, and a discriminating measure hint.
-- **Persist the candidates first**: write Codex's full candidate list into a `## Abduction` → `### Candidates` section of the state file, save the returned `threadId` as **`abduction_thread_id`**, and **only then** set `abduction_status: done`. (Compact Recovery's "candidates present" check depends on this — do not mark done before the candidates are on disk.)
-- **Bash fallback**: write the filled template to a prompt file and `codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" read-only`.
-- On Codex failure here, follow **Error Handling → `--abduce` failure** (do **not** silently fall back to claude-only).
+- **Persist the candidates first**: write Codex's full candidate list (read from `$OUTPUT_FILE`) into a `## Abduction` → `### Candidates` section of the state file, save the thread id as **`abduction_thread_id: "exec:<uuid>"`**, and **only then** set `abduction_status: done`. (Compact Recovery's "candidates present" check depends on this — do not mark done before the candidates are on disk.)
+- On Codex failure here (`rc` ≠ 0), follow **Error Handling → `--abduce` failure** (do **not** silently fall back to claude-only). `rc=4/5` are never retried automatically.
 
 **0b. Hypothesis selection (Claude / user).** Claude evaluates the candidates (falsifiability, discriminability, interest) and selects one — or presents them with `AskUserQuestion` for the user to choose / edit. Record the chosen hypothesis as `confirmed_hypothesis`, set `hypothesis_status: confirmed`, and `original_claim` (the user-supplied claim if any, else empty). This confirmed hypothesis becomes **H** for Phase 1+.
 
@@ -86,7 +86,7 @@ Following `references/prediction-template.md`, derive **3–5 falsifiable predic
 
 Set `phase: inductive` in the state file. Fill `references/induction-verification-template.md` with the hypothesis, predictions, and corpus rule.
 
-**Language directive** (both paths): read the project language and build the directive with the helper:
+**Language directive**: read the project language and build the directive with the helper:
 
 ```bash
 export CODEX_SKILL_CONTEXT=1
@@ -116,28 +116,26 @@ LANG_DIRECTIVE=$(codex_get_language_directive "$LANGUAGE")  # empty for "en"
 
 **If mode = codex** — delegate to Codex (independent verifier):
 
-- **Round 1 (MCP path, primary):** start a **fresh induction thread**.
-  ```
-  mcp__codex__codex(
-    prompt: "<filled induction-verification template>",
-    developer-instructions: "<LANG_DIRECTIVE>",
-    sandbox: "read-only",
-    cwd: "<corpus root>"
-  )
-  ```
-  Save the returned `threadId` as **`induction_thread_id`**.
-  - **Abduction variant (`--abduce`) — load-bearing:** the induction thread **must be different from `abduction_thread_id`**. Pass **only** the confirmed H, Claude's predictions, and the corpus rule — **never** the abduction thread's candidates, rationale, or confidence. This prevents the verifier from being anchored to the hypothesis's own generation context (same model, but no context contamination).
-- **Round 2+:** `mcp__codex__codex-reply(induction_thread_id, prompt)` with the updated hypothesis/predictions — the induction thread retains prior measurements. (Never continue on the abduction thread.)
-- **Bash fallback:** write the filled template (with `$LANG_DIRECTIVE` prepended) to a prompt file, then call `codex_run_exec` with the **file path** as the first argument:
-  ```bash
-  export CODEX_SKILL_CONTEXT=1   # plus the Step 0 helper-loading block (own shell per block)
-  PROMPT_FILE=$(codex_tmp_path "dialectic-loop-induction-prompt.txt")
-  OUTPUT_FILE=$(codex_tmp_path "dialectic-loop-induction-output.md")
-  # write the filled template into "$PROMPT_FILE" first (cat > "$PROMPT_FILE" <<EOF ... EOF)
-  codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" read-only
-  ```
-  Set Bash `timeout` to `min(wait_timeout + 60, 600) * 1000` ms. On MCP/exec failure: in the **default variant**, fall back to claude-only; in the **`--abduce` variant**, do **not** fall back — follow Error Handling → `--abduce` failure (retry, then stop / ask the user).
-  - **Bash mode (no threadId):** `codex exec` is stateless and returns no thread id. Thread "separation" is then automatic (each call is a fresh process). To keep the "IDs must differ" invariant true, record distinct sentinels: `abduction_thread_id: bash-exec-abduction` and `induction_thread_id: bash-exec-induction`. The isolation guard still holds: the induction prompt must contain only H + predictions + corpus rule, never the abduction prompt/candidates.
+Write the filled template (with `$LANG_DIRECTIVE` prepended) to a prompt file, then call `codex_run_exec_session` with the **file path** as the first argument:
+
+```bash
+export CODEX_SKILL_CONTEXT=1   # plus the Step 0 helper-loading block (own shell per block)
+PROMPT_FILE=$(codex_tmp_path "dialectic-loop-induction-prompt.txt")
+OUTPUT_FILE=$(codex_tmp_path "dialectic-loop-induction-output.md")
+# write the filled template into "$PROMPT_FILE" first (cat > "$PROMPT_FILE" <<EOF ... EOF)
+# Round 1: empty. Round 2+: the <uuid> part of induction_thread_id ("exec:<uuid>") from the state file.
+INDUCTION_THREAD=""
+rc=0
+NEW_THREAD=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "" "$INDUCTION_THREAD") || rc=$?
+echo "codex rc=$rc thread=$NEW_THREAD"
+```
+
+- **Round 1:** start a **fresh induction thread** (empty thread id). Save the id as **`induction_thread_id: "exec:<uuid>"`**.
+  - **Abduction variant (`--abduce`) — load-bearing:** the induction thread **must be different from `abduction_thread_id`** (always true: it is a new thread). Pass **only** the confirmed H, Claude's predictions, and the corpus rule — **never** the abduction thread's candidates, rationale, or confidence. This prevents the verifier from being anchored to the hypothesis's own generation context (same model, but no context contamination).
+- **Round 2+:** resume `induction_thread_id` with the updated hypothesis/predictions — the induction thread retains prior measurements. (Never continue on the abduction thread.)
+- **Legacy state values:** an `induction_thread_id` / `abduction_thread_id` **without** the `exec:` prefix (an MCP-era id, or the old `bash-exec-*` sentinel) is not resumable — start a fresh thread for that role with the role-scoped inputs above.
+- **Return codes:** `0` → read `$OUTPUT_FILE`. `3` (thread lost, before the turn started) → rebuild once in a fresh induction thread from the same isolated inputs (H + predictions + corpus rule + prior round verdicts from the state file) and save the new id. `4`/`5` → never retried automatically.
+- Set Bash `timeout` to `min(wait_timeout + 60, 600) * 1000` ms. On Codex failure: in the **default variant**, fall back to claude-only (after asking the user for `4`/`5`); in the **`--abduce` variant**, do **not** fall back — follow Error Handling → `--abduce` failure (stop / ask the user).
 
 **If mode = claude-only** — Claude performs the empirical pass itself, but MUST script over the real corpus (re-read from disk, no cached content) and actively hunt counterexamples.
 
@@ -183,7 +181,7 @@ Loop log: tmp/dialectic-loop/<task-id>.md
 ## Error Handling
 
 - **Codex unavailable in codex mode (default variant):** auto-fall back to claude-only; inform the user.
-- **`--abduce` failure (Codex unavailable / abduction or induction call fails):** do **NOT** silently fall back to claude-only — having Claude generate or test the hypothesis breaks the author≠verifier contract. Instead: stop and retry once; if it still fails, ask the user whether to (a) abort, or (b) switch to the **default variant** with an explicit user-supplied claim (claim then required).
+- **`--abduce` failure (Codex unavailable / abduction or induction call fails):** do **NOT** silently fall back to claude-only — having Claude generate or test the hypothesis breaks the author≠verifier contract. Instead: stop (no automatic retry for `rc=4`/`rc=5`; a lost resumed thread `rc=3` is re-seeded once per Step 4), then ask the user whether to (a) retry, (b) abort, or (c) switch to the **default variant** with an explicit user-supplied claim (claim then required).
 - **Inductive role returns no numbers:** treat the prediction as unverified; re-run with an explicit demand to compute the Measure over the corpus.
 - **Corpus inaccessible:** stop and ask the user for a valid path rather than guessing.
 - **Early stop requested:** report H′ so far with interim confidence and note the loop did not converge.

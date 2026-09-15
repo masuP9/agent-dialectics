@@ -32,17 +32,21 @@ The **primary and most reliable** method is checking for the `CODEX_SKILL_CONTEX
 
 Check if the command matches the following pattern at an execution position (line start, after `;` `&` `|`, inside `$(...)` or backticks):
 
-**Side-effect helper calls**: `(^|[;&|]|\$\(|`)[[:space:]]*codex_(run_exec|run_review|save_session_state|save_thread)\b`
+**Side-effect helper calls**: `(^|[;&|]|\$\(|`)[[:space:]]*codex_(run_exec|run_exec_session|run_review|save_session_state|save_thread|save_thread_session|load_session_state|load_session_thread|load_thread|load_thread_sandbox)\b`
 
 Protected functions (external execution and session-state writes):
-- `codex_run_exec` — runs external codex CLI
+- `codex_run_exec` — runs external codex CLI (stateless)
+- `codex_run_exec_session` — runs `codex exec --json` / `codex exec resume` (stateful)
 - `codex_run_review` — runs codex review subprocess
 - `codex_save_session_state` — writes session state to filesystem
-- `codex_save_thread` — writes named thread to filesystem
+- `codex_save_thread` / `codex_save_thread_session` — write named threads to filesystem
+- `codex_load_session_state` / `codex_load_session_thread` / `codex_load_thread` / `codex_load_thread_sandbox` — migrate legacy (mcp/bash) state files in place before reading
+
+Every name is listed explicitly because `\b` does not match `run_exec` → `run_exec_session` or `load_thread` → `load_thread_sandbox`.
 
 **Intentionally NOT guarded** (not side-effect helpers):
-- Pure transforms: `codex_strip_ansi`, `codex_infer_verdict`, `codex_extract_review_findings`, `codex_get_field`, etc.
-- Read-only helpers: `codex_load_session_state`, `codex_load_thread`, `codex_tmp_path`, etc.
+- Pure transforms: `codex_strip_ansi`, `codex_infer_verdict`, `codex_extract_review_findings`, `codex_extract_thread_id`, `codex_is_valid_uuid`, `codex_get_field`, etc.
+- Path helpers: `codex_tmp_path`, etc.
 - Speculative patterns: `source codex-helpers.sh`, `HELPERS=...`, `CODEX_PROMPT` — removed to reduce false positives
 
 ## If Pattern Detected (and NOT in skill context)
@@ -64,7 +68,9 @@ Allow the Bash command to proceed normally without any output.
 **If blocking** (exit 2, pattern detected AND not in skill context):
 ```
 This command calls a codex-collab side-effect helper directly
-(codex_run_exec / codex_run_review / codex_save_session_state / codex_save_thread).
+(codex_run_exec / codex_run_exec_session / codex_run_review /
+ codex_save_session_state / codex_save_thread / codex_save_thread_session /
+ codex_load_session_state / codex_load_session_thread / codex_load_thread / codex_load_thread_sandbox).
 
 This is a soft guard against accidental direct use of internal APIs,
 not a security boundary. Preferred entry points:

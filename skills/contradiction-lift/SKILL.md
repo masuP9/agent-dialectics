@@ -35,7 +35,7 @@ A Contradiction Lift run:
 ## Prerequisites
 
 - A question with **multiple reasonable decision rules** that a single experiment cannot fully settle (design trade-offs, API/architecture philosophy, product direction, abstraction boundaries). Composite problems are welcome: empirical sub-parts are routed to Codex, and the residual normative core is lifted.
-- For `codex` mode: Codex CLI available (`mcp__codex__codex` / `codex exec`). Independence (two *different* models) is the whole point — see Role Distribution.
+- For `codex` mode: Codex CLI available (`codex exec` / `codex exec resume`, codex-cli 0.154.0+). Independence (two *different* models) is the whole point — see Role Distribution.
 
 ## Design principles (lessons baked in)
 
@@ -95,7 +95,7 @@ Route each disagreement by type:
 
 Each party submits, about the **other**: the conditions under which the other's solution is strongest; the truth-moment lost if it is discarded; a concrete failure of the design without that moment; and the incompatible core that still remains. The other party reviews with **`accept` / `repair once`** only — no unbounded handshake (review target is "is my reasoning represented faithfully?", not "do I agree?").
 
-**Party continuity across phases.** Codex's side continues on `solver_b_thread_id` via `codex-reply` (its thread retains Solution B). Solver A was a **one-shot subagent**, so the Claude-side party actions here (its steelman of B, and its review of B's steelman of A) run as a **fresh Claude subagent re-seeded from the persisted Solution A + Solution B on disk** — identity is reconstructed from the record, not a continued thread. This is sufficient because steelman/review depend only on the *recorded* decision function and assumptions, not on the subagent's private reasoning.
+**Party continuity across phases.** Codex's side continues on `solver_b_thread_id` via `codex exec resume` (its thread retains Solution B). Solver A was a **one-shot subagent**, so the Claude-side party actions here (its steelman of B, and its review of B's steelman of A) run as a **fresh Claude subagent re-seeded from the persisted Solution A + Solution B on disk** — identity is reconstructed from the record, not a continued thread. This is sufficient because steelman/review depend only on the *recorded* decision function and assumptions, not on the subagent's private reasoning.
 
 ### Phase 5: Lift Construction (anonymized)
 
@@ -149,13 +149,13 @@ question: "Should the loop stop on fixed rounds or convergence detection?"
 mode: codex
 state: contract            # contract|sealed|mapped|adjudicated|preserved|lifted|accepted|aporia|no_material_divergence
 solver_a_role: claude-subagent  # claude-subagent (default) | orchestrator-fallback (only when the Task tool is unavailable — sealing degrades to disciplinary)
-solver_b_thread_id: ""     # Codex thread for Solver B (bash-exec-solver in Bash mode; claude-subagent-solverB in claude-only mode)
+solver_b_thread_id: ""     # "exec:<uuid>" Codex thread for Solver B (claude-subagent-solverB in claude-only mode; legacy values without exec: are not resumable)
 mapper_role: ""            # claude-subagent | codex-thread (anonymized)
-mapper_thread_id: ""       # actor key: Codex threadId | bash-exec-mapper | claude-subagent-mapper (subagents get a per-role sentinel so the distinctness invariant still holds)
+mapper_thread_id: ""       # actor key: exec:<uuid> | claude-subagent-mapper (subagents get a per-role sentinel so the distinctness invariant still holds)
 lift_role: ""              # claude-subagent | codex-thread (anonymized)
-lift_thread_id: ""         # actor key: Codex threadId | bash-exec-lift | claude-subagent-lift
+lift_thread_id: ""         # actor key: exec:<uuid> | claude-subagent-lift
 audit_role: ""             # claude-subagent | codex-thread — prefer the OPPOSITE model to lift_role
-audit_thread_id: ""        # actor key: Codex threadId | bash-exec-audit | claude-subagent-audit — MUST differ from lift_thread_id (per-role sentinels record this distinctness even for two subagents; freshness comes from always dispatching a new subagent)
+audit_thread_id: ""        # actor key: exec:<uuid> | claude-subagent-audit — MUST differ from lift_thread_id (per-role sentinels record this distinctness even for two subagents; freshness comes from always dispatching a new subagent)
 empirical_arbiter: pending # pending|done|not_applicable|deferred (deferred = an empirical disagreement exists but the experiment can't be run this session)
 lift_attempts: 0
 max_lift_attempts: 2
@@ -182,7 +182,7 @@ outcome: pending           # pending|lifted|aporia|no_material_divergence
 - **The orchestrator never authors** a solution / steelman / lift / audit — each runs in a fresh role. (This is what removes the contamination the old "orchestrator = Solver A" design could not avoid.) **One documented exception:** when the Task tool is unavailable, **Solver A and its Phase 4 party actions** (the Claude-side steelman/review) fall back to the orchestrator (`solver_a_role: orchestrator-fallback`); sealing degrades to disciplinary and the Claude party action loses its fresh-context separation — flag both degradations in the report.
 - **Subagents are analysis-only**: a Claude-subagent role must not write files — use a read-only subagent type where available and instruct the subagent to produce only the requested artifact (no edits, no commits). The state file is written by the orchestrator, not the role.
 - **Anonymize** A/B → X/Y for Mapper / Lift Architect / Meta Auditor, and do not pass prior reasoning history.
-- **Roles must be mutually distinct** where independence matters: Mapper ≠ Solver B, Lift Architect ≠ mapper/solver, and auditor ≠ architect (`audit_thread_id ≠ lift_thread_id`). Each independence-bearing role gets its **own** fresh subagent/thread. The `*_thread_id` field holds a per-role **actor key**: a Codex `threadId`, a `bash-exec-<role>` sentinel (Bash mode), or a `claude-subagent-<role>` sentinel (subagent mode). The unequal comparison (`claude-subagent-lift ≠ claude-subagent-audit`) is a **procedural record that distinct roles were dispatched**, not a runtime proof of a distinct Task invocation — actual freshness is guaranteed by the orchestrator **always dispatching a new subagent for each role** (never reusing one). For the audit, prefer the **opposite model** to the Lift Architect.
+- **Roles must be mutually distinct** where independence matters: Mapper ≠ Solver B, Lift Architect ≠ mapper/solver, and auditor ≠ architect (`audit_thread_id ≠ lift_thread_id`). Each independence-bearing role gets its **own** fresh subagent/thread. The `*_thread_id` field holds a per-role **actor key**: `exec:<uuid>` (a new Codex thread per role) or a `claude-subagent-<role>` sentinel (subagent mode); legacy `bash-exec-<role>` values or ids without `exec:` are not resumable. The unequal comparison (`claude-subagent-lift ≠ claude-subagent-audit`) is a **procedural record that distinct roles were dispatched**, not a runtime proof of a distinct Task invocation — actual freshness is guaranteed by the orchestrator **always dispatching a new subagent for each role** (never reusing one). For the audit, prefer the **opposite model** to the Lift Architect.
 - Confirm before any file modification (this skill is analytical; writes are limited to the state file and the final report).
 - Set per-delegation timeout: `min(wait_timeout + 60, 600) * 1000` ms for `codex exec`.
 

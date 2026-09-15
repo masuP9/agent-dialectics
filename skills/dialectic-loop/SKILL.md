@@ -35,7 +35,7 @@ The output is not approve/reject and not a root cause — it is a **refined hypo
 
 - The user has a **claim, hypothesis, or model** to validate (e.g. "X tends to do Y", "this pattern holds", "the system behaves like Z").
 - A **corpus / data source** that can ground the test exists and is accessible (codebase, logs, dataset, documents).
-- For Codex collaboration mode: Codex CLI available (`codex exec` / MCP `mcp__codex__codex`).
+- For Codex collaboration mode: Codex CLI available (`codex exec` / `codex exec resume`, codex-cli 0.154.0+).
 
 ## Design principles (lessons baked in)
 
@@ -89,7 +89,7 @@ Hand the predictions to the inductive role with a strict mandate:
 - Render a verdict per prediction: **【支持 / 部分支持 / 反証】** with the number and quotes.
 - End with **【帰納役の総合所見】**: how H should be updated, and — most importantly — **2–3 nuances or counterexamples the deductive role likely missed.** Do not flatter the hypothesis.
 
-In **codex mode** this is delegated via MCP (`mcp__codex__codex`, `sandbox: "read-only"`) or `codex exec`. In **claude-only mode** Claude performs the empirical pass itself, but must still script over the real corpus and hunt counterexamples.
+In **codex mode** this is delegated to a read-only Codex thread (`codex_run_exec_session`, i.e. `codex exec --json` / `codex exec resume`). In **claude-only mode** Claude performs the empirical pass itself, but must still script over the real corpus and hunt counterexamples.
 
 ### Phase 4: Arbitration (Arbiter role — Claude)
 
@@ -160,8 +160,8 @@ original_claim: ""                # user-supplied claim if any (else empty — C
 confirmed_hypothesis: ""          # set in Phase 0b (selection)
 abduction_status: pending         # pending → done (set AFTER candidates persisted)
 hypothesis_status: pending        # pending → confirmed (after Phase 0b)
-abduction_thread_id: ""           # set in Phase 0a (empty/bash-exec in Bash mode)
-induction_thread_id: ""           # set in Phase 3 — MUST differ from abduction_thread_id
+abduction_thread_id: ""           # "exec:<uuid>", set in Phase 0a (values without exec: are legacy and not resumable)
+induction_thread_id: ""           # "exec:<uuid>", set in Phase 3 — MUST differ from abduction_thread_id
 confidence: pending               # → low | medium | high (Phase 4)
 evidence_scope: pending           # → confirmatory | exploratory_in_sample (Phase 4)
 claim: ""                         # v2: mirrors confirmed_hypothesis once Phase 0b selects it (empty before); original_claim holds the user seed

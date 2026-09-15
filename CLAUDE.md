@@ -47,30 +47,30 @@ PRを作成する前に、変更内容に応じて以下の **両方のファイ
 
 ## Codex 通信の仕様
 
-OpenAI Codex と連携する際に知っておくべき仕様。**MCP primary + Bash fallback** のデュアルモード。
+OpenAI Codex と連携する際に知っておくべき仕様。通信は `codex` CLI のみ（検証済み: codex-cli 0.154.0 / 対応対象: 0.154.0 以上）。`codex mcp-server` は 0.154.0 で削除されたため使用しない。
 
-### Codex MCP Tools（ステートフル、推奨）
+### codex exec --json + codex exec resume（ステートフル実行）
 
-Codex MCP サーバー (`codex mcp-server`) 経由でステートフルなセッション管理が可能。
+`codex_run_exec_session()` が新規スレッドの作成と継続を統合処理する。
 
-```
-# 新規セッション開始
-mcp__codex__codex(prompt: "...", sandbox: "read-only")
-→ Returns: response + threadId
+```sh
+# 新規スレッド（stdout = JSONL イベント、-o = 最終メッセージ）
+codex exec -s read-only --json -o out.md - < prompt.txt > out.jsonl 2> out.stderr.log
 
-# 同一スレッドで継続（会話コンテキスト自動保持）
-mcp__codex__codex-reply(threadId: "...", prompt: "...")
-→ Returns: response
+# 継続（-s は exec と resume の間。resume 自体に -s はない）
+codex exec -s read-only resume <THREAD_UUID> --json -o out.md - < next.txt > out.jsonl 2> out.stderr.log
 ```
 
-- ステートフル: threadId で会話コンテキスト保持（multi-turn exchange で履歴再構築不要）
-- クリーンテキスト: ANSI 除去不要
-- ファイル I/O 不要: prompt/output の tmp ファイル不要
-- MCP 未設定時は自動的に Bash fallback に切り替え
+- thread id は `{"type":"thread.started","thread_id":"<uuid>"}` から取得し、セッション状態に保存する
+- 応答本文は `-o` の出力ファイルのみを正とする（JSONL 本文のデコードはしない）
+- `resume --last` / `--ephemeral` は使わない。UUID 以外を渡すと未知のスレッド名として**新規スレッドが黙って作られる**ため事前に拒否する
+- 1 スレッド = 1 sandbox（claude-leads は Thread B = read-only、Thread C = workspace-write）
+- 戻り値: `0` 成功（thread id を stdout）/ `2` 前提エラー（codex 未起動）/ `3` 再開対象スレッドなし（stderr `no rollout found for thread id <id>`、ターン未開始。**自動で 1 回だけ再構築可**）/ `4` 実行結果不明 / `5` 完了したが結果不正。`4`/`5` は自動再実行しない
+- 呼び出しは `rc=0; X=$(codex_run_exec_session ...) || rc=$?` 形式（`set -e` 下でも分岐に到達させる）
 
-### codex exec（ステートレス実行、Bash fallback）
+### codex exec（ステートレス実行）
 
-MCP が利用できない場合のフォールバック。プロンプトを stdin から受け取り、結果を stdout に出力してブロッキング終了する。
+単発実行用。プロンプトを stdin から受け取り、結果を stdout に出力してブロッキング終了する。
 
 ```sh
 # 基本パターン
@@ -84,9 +84,9 @@ codex exec -s read-only -m gpt-5.6-sol - < prompt.txt
 - 出力に ANSI エスケープコードが含まれる場合があるため `codex_strip_ansi()` で除去
 - `codex_run_exec()` がファイル入出力、ANSI 除去、exit code ハンドリングを統合処理
 
-### codex review（コードレビュー、Bash fallback）
+### codex review（コードレビュー）
 
-`codex review --uncommitted` はステージ済み/未コミットの差分を自動収集してレビューを行う専用サブコマンド。MCP では利用不可（diff を prompt に埋め込む）。
+`codex review --uncommitted` はステージ済み/未コミットの差分を自動収集してレビューを行う専用サブコマンド。`-s` / `-m` は受け付けないため `-c sandbox_mode=` / `-c model=` で指定する。
 
 ```sh
 # 基本パターン
@@ -96,7 +96,7 @@ codex review --uncommitted
 codex review --uncommitted "セキュリティ脆弱性に注目してレビュー"
 ```
 
-- レビューフェーズでは `codex review` を第一選択、失敗時は `codex exec` にフォールバック
+- レビューフェーズでは `codex review` を第一選択、失敗時は計画スレッドを `codex_run_exec_session` で resume してレビュー
 - `codex_run_review()` が sandbox_mode 指定（既定 read-only、`-c sandbox_mode=` 経由）、ANSI 除去、出力保存、exit code ハンドリング、モデル指定 retry を統合処理
 - `codex_infer_verdict()` でレスポンスから verdict を推定（メタデータ → `[P1]-[P4]` → findings なし pass）
 
@@ -185,25 +185,32 @@ fi
 
 ### 現在の関数一覧
 
-コア関数（Bash fallback 用の Codex 実行）:
+コア関数（Codex 実行）:
 
-- `codex_run_exec()` - codex exec のラッパー（stdin パイプ、ANSI 除去、出力保存、exit code ハンドリング）
+- `codex_run_exec_session()` - `codex exec --json` / `codex exec resume` のラッパー（thread id を stdout に返す。戻り値 0/2/3/4/5 で失敗を分類、JSONL/stderr を出力ファイル隣に分離保存）
+- `codex_extract_thread_id()` - JSONL の `thread.started` 行（行頭アンカー）から UUID を 1 つだけ抽出
+- `codex_is_valid_uuid()` / `codex_is_valid_sandbox()` - thread id（8-4-4-4-12）/ sandbox 値の検証
+- `codex_run_exec()` - codex exec のステートレス実行ラッパー（stdin パイプ、ANSI 除去、出力保存、exit code ハンドリング）
 - `codex_run_review()` - codex review --uncommitted のラッパー（sandbox_mode 指定、ANSI 除去、出力保存、モデル retry、exit code ハンドリング）
 - `codex_build_exec_command()` - codex exec コマンド文字列の構築
 - `codex_write_prompt()` - プロンプトを一時ファイルに書き出し
 - `codex_strip_ansi()` - ANSI エスケープコード除去
 
-レビュー解析（Bash fallback 用）:
+レビュー解析:
 
 - `codex_infer_verdict()` - レビューレスポンスから verdict を推定（メタデータ → [P1]-[P4] → findings なし pass）
 - `codex_extract_review_findings()` - レビューレスポンスから findings を抽出
 
-セッション状態管理（MCP/Bash デュアルモード用）:
+セッション状態管理（exec スレッド用）:
 
-- `codex_save_session_state()` - セッション状態を JSON ファイルに保存（task_id 単位で分離、値はエスケープ済み）
-- `codex_load_session_state()` - セッション状態を読み込み（MODE, THREAD_ID 等をグローバル変数にセット）
-- `codex_save_thread()` - 名前付きスレッドを保存（claude-leads の Thread B/C 用）
-- `codex_load_thread()` - 名前付きスレッドを読み込み
+- `codex_save_session_state()` - セッション状態を JSON ファイルに保存（task_id 単位で分離、値はエスケープ済み。mode は `exec`）
+- `codex_load_session_state()` - セッション状態を読み込み（MODE, THREAD_ID 等をグローバル変数にセット。戻り値 0 / 1 未検出 / 2 移行・I/O 失敗）
+- `codex_save_thread()` - 名前付きスレッドの生の値を保存
+- `codex_save_thread_session()` - 名前付きスレッドを `uuid|sandbox` 形式で検証して保存（claude-leads の Thread B/C 用）
+- `codex_load_session_thread()` - メインスレッド（Thread A 等）を指定 sandbox で再開できるか判定し UUID を返す（戻り値 0 再開可 / 1 なし・旧形式・不正値・sandbox 不一致 → 新規スレッド / 2 I/O 失敗 → 停止）
+- `codex_load_thread()` / `codex_load_thread_sandbox()` - 名前付きスレッドの UUID / sandbox を読み込み（戻り値 0 / 1 なし・旧形式・不正値 → 新規スレッド / 2 I/O 失敗 → 停止）
+- 旧形式（mode `mcp`/`bash`）の状態ファイルは load/save 系の入口で自動移行（threadId/threads を破棄、tmp+mv で置換）。同一 task の状態書き込みはオーケストレーターが直列に行う
+- load 系も移行で書き込むため、PreToolUse フックのガード対象に含まれる
 - `codex_sanitize_task_id()` - task_id のファイル名安全化（英数字・ハイフン・アンダースコアのみ）
 - `codex_json_escape()` - JSON 値のエスケープ（引用符・バックスラッシュ・改行）
 - `codex_diff_tier()` - diff のサイズに応じてティア判定（small/medium/large）
