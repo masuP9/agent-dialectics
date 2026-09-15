@@ -27,7 +27,7 @@ exchange:
   max_iterations: 3          # 暴走防止の上限ラウンド数
   user_confirm: on_important # never | always | on_important
   history_mode: summarize    # full | summarize
-                             # ※ Bash fallback 専用。MCP モードではスレッドが履歴を保持するため無視される。
+                             # ※ 通常は codex exec resume のスレッドが履歴を保持。再開対象スレッドが消えた場合の再構築にのみ使用。
 
 # Review iteration settings (codex-leads: Codex reviews → Claude fixes → Codex re-reviews)
 review:
@@ -49,9 +49,9 @@ collab_planning:
   max_iterations: 3          # 計画レビュー改善サイクルの上限
   user_confirm: on_important # never | always | on_important
 
-# Bash fallback 専用設定（MCP モードでは無視される）
+# Codex 実行設定
 codex:
-  wait_timeout: 180          # codex exec の最大実行時間（秒。default: 180, max: 600 = Bash tool の上限）
+  wait_timeout: 180          # Codex 1 ターンの最大実行時間（秒。default: 180, max: 600 = Bash tool の上限）
 ---
 
 ## Project-specific Instructions

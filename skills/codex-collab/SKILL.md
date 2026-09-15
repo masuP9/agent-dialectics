@@ -21,18 +21,17 @@ This skill enables effective collaboration between two AI systems with **two wor
 
 デフォルト（`auto`）は常に **Codex-Leads** を選択。`claude-leads` は `workflow: claude-leads` を明示指定した場合のみ有効。
 
-**通信方式**: MCP primary + Bash fallback のデュアルモード。
-- **MCP mode** (`mcp__codex__codex`/`codex-reply`): ステートフルな会話（threadId で文脈保持）。ANSI 除去不要、ファイル I/O 不要。
-- **Bash mode** (`codex exec`/`codex review`): ステートレス実行。`codex_run_exec()` が入出力、ANSI 除去、exit code ハンドリングを統合処理。MCP 未設定時の自動フォールバック。
+**通信方式**: `codex` CLI のみ（codex-cli 0.154.0 以上）。
+- **ステートフル実行** (`codex_run_exec_session`): 新規は `codex exec --json -o <output>`、継続は `codex exec -s <sandbox> resume <thread_id> --json -o <output>`。thread id をセッション状態に保存して multi-turn を継続する。応答本文は `-o` の出力ファイルのみを正とする。
+- **レビュー** (`codex_run_review`): `codex review --uncommitted`（独立したステートレスセッション）。
+- **失敗の扱い**: 戻り値で分類する。`3`（再開対象スレッドが存在しない・ターン未開始）のみ自動で 1 回再構築、`4`/`5`（実行結果不明・結果不正）は自動再実行しない。
 
 ## Prerequisites
 
 Before starting collaboration:
-1. **MCP tools check** (primary): Try `mcp__codex__codex` with a lightweight probe. If available → MCP mode.
-2. **CLI fallback**: If MCP unavailable, verify `codex` CLI is available: `which codex` or `codex --version`
-3. Verify `codex exec` works (Bash mode): `codex exec -s read-only - <<< "test"`
-4. Check for project settings in `.claude/codex-collab.local.md`
-5. If neither MCP nor CLI available, inform user and proceed with Claude-only mode
+1. Verify `codex` CLI is available: `which codex` or `codex --version` (0.154.0+)
+2. Check for project settings in `.claude/codex-collab.local.md`
+3. If the CLI is not available, inform user and proceed with Claude-only mode
 
 ## Workflow: Review Type (Default)
 
@@ -53,21 +52,17 @@ When receiving a task for collaboration:
 
 ### Phase 2: Request Plan from Codex
 
-**MCP mode (primary):**
-```
-mcp__codex__codex(prompt: "[planning prompt]", sandbox: "read-only")
-→ Returns response + threadId (saved for Phase 4)
-```
-
-**Bash mode (fallback):**
 ```bash
+export CODEX_SKILL_CONTEXT=1
 source scripts/codex-helpers.sh
 PROMPT_FILE=$(codex_write_prompt "$PLANNING_PROMPT" "plan")
 OUTPUT_FILE="$(codex_tmp_path 'codex-plan-output.md')"
-codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only"
+rc=0
+THREAD_ID=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" "read-only" "") || rc=$?
+# rc=0 → save THREAD_ID (codex_save_session_state) for the exchange and review fallback
 ```
 
-Read results from tool response (MCP) or output file (Bash).
+Read results from the output file.
 
 ### Phase 3: Implement Based on Plan
 
@@ -89,28 +84,23 @@ git reset -- tmp/ 2>/dev/null || true
 ```
 > **Why?** Staging ensures all changes are visible to Codex regardless of its file discovery method.
 
-2. Run review (mode-dependent):
+2. Run review (`codex review` primary, plan thread as fallback):
 
-**MCP mode (primary):**
-```
-# Get diff, embed in prompt, continue same thread from Phase 2
-mcp__codex__codex-reply(threadId: "[from Phase 2]", prompt: "[review prompt with diff]")
-→ Parse verdict directly from response (no codex_infer_verdict needed)
-```
-
-**Bash mode (fallback):**
 ```bash
+export CODEX_SKILL_CONTEXT=1
 source scripts/codex-helpers.sh
 REVIEW_OUTPUT="$(codex_tmp_path 'codex-review-output.md')"
 codex_run_review "$REVIEW_OUTPUT" "$MODEL" || REVIEW_EXIT=$?
 
 if [ "${REVIEW_EXIT:-0}" -ne 0 ]; then
   REVIEW_PROMPT_FILE=$(codex_write_prompt "$REVIEW_PROMPT" "review")
-  codex_run_exec "$REVIEW_PROMPT_FILE" "$REVIEW_OUTPUT" "read-only"
+  # Resume the Phase 2 thread so Codex reviews against its own plan
+  rc=0
+  codex_run_exec_session "$REVIEW_PROMPT_FILE" "$REVIEW_OUTPUT" "read-only" "" "$THREAD_ID" > /dev/null || rc=$?
 fi
 ```
 
-3. Parse verdict and findings (Bash mode):
+3. Parse verdict and findings:
 ```bash
 RESPONSE=$(cat "$REVIEW_OUTPUT")
 VERDICT=$(codex_infer_verdict "$RESPONSE") || true
@@ -159,7 +149,7 @@ Parse YAML frontmatter for:
 - `exchange.enabled`: Enable planning exchange (default: true, codex-leads only)
 - `exchange.max_iterations`: Maximum rounds for multi-turn exchange (default: 3)
 - `exchange.user_confirm`: When to ask user confirmation (never | always | on_important)
-- `exchange.history_mode`: How to handle history (full | summarize; Bash fallback only — MCP threads preserve history)
+- `exchange.history_mode`: How to rebuild history when a resumed thread is lost (full | summarize; used only for rc=3 — normally `codex exec resume` preserves history)
 - `review.enabled`: Enable review iteration (default: true, codex-leads only)
 - `review.max_iterations`: Maximum rounds for review iteration (default: 5)
 - `review.max_verdict_retries`: Retries when verdict is missing/unclear (default: 3)
@@ -168,7 +158,7 @@ Parse YAML frontmatter for:
 - `claude_leads.consult_codex`: Enable plan consultation phase (default: true)
 - `claude_leads.safety_checkpoint`: Pre-implementation checkpoint (stash | wip-commit | none, default: stash)
 - `claude_leads.review.max_iterations`: Max review-fix iterations (default: 3)
-- `codex.wait_timeout`: Max execution time for `codex exec` in seconds (default: 180, max: 600; Bash fallback only)
+- `codex.wait_timeout`: Max execution time for a Codex turn in seconds (default: 180, max: 600)
 
 ### Settings Priority
 
@@ -220,33 +210,34 @@ Accept review as "Pass" only when:
 
 ## Running Codex
 
-### MCP パターン（推奨）
-
-MCP ツールが利用可能な場合、ステートフルな通信を使用:
-
-```
-# 新規セッション開始
-mcp__codex__codex(prompt: "...", sandbox: "read-only")
-→ Returns response + threadId
-
-# 同一スレッドで継続
-mcp__codex__codex-reply(threadId: "...", prompt: "...")
-→ Returns response (conversation context preserved)
-```
-
-### codex exec パターン（フォールバック）
-
-MCP が利用できない場合、`codex exec`（ステートレス実行）を使用:
+### ステートフル実行パターン（codex exec + resume）
 
 ```bash
 # ヘルパー関数を使用（推奨）
+export CODEX_SKILL_CONTEXT=1
 source scripts/codex-helpers.sh
 PROMPT_FILE=$(codex_write_prompt "$PROMPT_CONTENT" "plan")
 OUTPUT_FILE="$(codex_tmp_path 'codex-output.md')"
-codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only"
 
-# 直接実行（モデルは通常 Codex デフォルトを使用。指定する場合のみ -m を付ける）
-codex exec -s read-only - < prompt.txt 2>&1 | tee output.md
+# 新規スレッド
+rc=0
+THREAD_ID=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" "read-only" "") || rc=$?
+
+# 同一スレッドで継続（sandbox はスレッド作成時と同じにする）
+rc=0
+THREAD_ID=$(codex_run_exec_session "$NEXT_PROMPT_FILE" "$OUTPUT_FILE" "read-only" "" "$THREAD_ID") || rc=$?
+
+# 直接実行する場合（-s は exec と resume の間。--last は使わない）
+codex exec -s read-only --json -o output.md - < prompt.txt > events.jsonl
+codex exec -s read-only resume "$THREAD_ID" --json -o output.md - < next.txt > events.jsonl
+```
+
+戻り値: `0` 成功（thread id を stdout に出力）/ `2` 前提エラー（codex 未起動）/ `3` 再開対象スレッドなし（自動で 1 回だけ再構築可）/ `4` 実行結果不明 / `5` 完了したが結果不正。`4`/`5` は自動再実行しない。
+
+### ステートレス実行（単発）
+
+```bash
+codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" "read-only"
 ```
 
 ### Codex CLI Options
@@ -259,13 +250,13 @@ codex exec -s read-only - < prompt.txt 2>&1 | tee output.md
 
 ### Important Notes
 
-- **MCP mode**: Stateful sessions via threadId. Clean text output. No file I/O for prompts. Auto-detected in Step 0a.
-- **Bash mode**: Each `codex exec` call is stateless (no conversation history between calls). Include all necessary context in each prompt.
+- **Stateful sessions**: `codex_run_exec_session` persists context via the thread id from the `thread.started` event; `codex exec resume` continues it. Plain `codex_run_exec` calls are stateless.
+- **One thread = one sandbox**: never resume a thread with a different sandbox; use a separate named thread (e.g. claude-leads Thread B = read-only, Thread C = workspace-write)
 - Use `-s read-only` for planning/review tasks (Codex won't modify files)
 - Use `-s workspace-write` for implementation tasks (claude-leads workflow)
-- Output may contain ANSI escape codes (Bash mode only); use `codex_strip_ansi()` or `codex_run_exec()` to clean
-- **Stdin input** (Bash mode): Use redirect format (`codex exec - < file`) for reliable input
-- **Timeout**: Bash tool has max 600s (10 minutes) timeout. MCP mode timeout is managed by MCP framework.
+- Response body comes from the `-o` output file; the stateless `codex_run_exec()` output may contain ANSI escape codes (stripped automatically)
+- **Stdin input**: Use redirect format (`codex exec - < file`) for reliable input
+- **Timeout**: Bash tool has max 600s (10 minutes) timeout.
 - **Background agents**: Background subagents (`run_in_background: true`) require pre-approved Bash permissions in `~/.claude/settings.json` or `.claude/settings.json`. Without pre-approval, Bash tool calls are auto-denied because permission prompts are unavailable in background mode.
 
 ## Error Handling
@@ -279,10 +270,10 @@ If `codex` command is not found:
 
 ### Codex Timeout or Error
 
-If `codex exec` returns non-zero exit code or times out:
-1. Check error message in output file
-2. Retry once with simplified prompt
-3. If still failing, proceed manually and inform user
+If a Codex turn fails (`codex_run_exec_session` return code):
+1. `3` (resumed thread not found) → rebuild the context from the role's inputs and retry once in a new thread
+2. `4` / `5` → do **not** retry automatically: check `*.stderr.log` next to the output file (and `git status` for workspace-write), then ask the user
+3. `2` → precondition error; fix and re-run, or proceed manually and inform user
 
 ### Bash Tool Timeout
 

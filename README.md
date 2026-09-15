@@ -6,7 +6,7 @@ Claude Code から Codex を呼び出す既存フローに加え、Codex から 
 
 ## 概要
 
-このプラグインは、Claude Code と Codex の強みを組み合わせた協調ワークフローを提供します。**MCP primary + Bash fallback** のデュアルモードアーキテクチャで Codex と通信します。
+このプラグインは、Claude Code と Codex の強みを組み合わせた協調ワークフローを提供します。Codex とは `codex` CLI（`codex exec --json` / `codex exec resume` / `codex review`）で通信し、スレッドを再開することで multi-turn の文脈を保持します。
 
 **Codex-Leads（従来のレビュー型）:**
 - **Codex**: 計画作成・コードレビュー
@@ -42,42 +42,32 @@ Codex で「Claude と一緒に実装して」「Claude にレビューしても
 ## 前提条件
 
 - OpenAI Codex CLI (`codex`) がインストールされていること
+  - **検証済み: codex-cli 0.154.0 / 対応対象: 0.154.0 以上**（それ未満は保証対象外）
 - `codex exec` が動作すること（`echo "test" | codex exec -s read-only -`）
 - 環境変数 `OPENAI_API_KEY` が設定されていること
-- (推奨) Codex MCP サーバー設定済み（`codex mcp-server`）
 - Codex から `claude-collab` を使う場合は Claude Code CLI (`claude`) がインストール済みであること
+
+### 以前のバージョンから移行する場合（v0.37 以前）
+
+`codex mcp-server` は codex-cli 0.154.0 で削除され、本プラグインも v0.38.0 で MCP 経路を廃止しました。
+
+- MCP 設定（例: `~/.mcp.json` や `~/.claude.json` の `mcpServers.codex`）に `codex mcp-server` を登録している場合は、そのエントリを削除してください（残っていると Claude Code 起動時に接続エラーになります）。
+- `tmp/codex-session-*.json` に残っている旧形式（`mode: mcp` / `bash`）のセッション状態は、読み込み時に自動で新形式へ移行されます（旧 thread id は破棄され、新しいスレッドで再開します）。
 
 ## アーキテクチャ
 
-Codex CLI との通信は **MCP primary + Bash fallback** のデュアルモードを採用しています。
-
-### MCP モード（推奨）
-
-Codex MCP サーバー (`codex mcp-server`) 経由でステートフルなセッション管理:
+Codex との通信は `codex` CLI のみで行います。
 
 ```
-Claude Code → mcp__codex__codex → threadId で会話継続 → mcp__codex__codex-reply
+新規:  Claude Code → codex exec -s <sandbox> --json -o out.md -          → thread.started の thread_id を保存
+継続:  Claude Code → codex exec -s <sandbox> resume <thread_id> --json -o out.md -
+レビュー: Claude Code → codex review --uncommitted（失敗時は計画スレッドを resume）
 ```
 
-- ステートフル: `threadId` で会話コンテキスト保持（multi-turn exchange で履歴再構築不要）
-- クリーンテキスト: ANSI 除去不要
-- ファイル I/O 不要: prompt/output の tmp ファイル不要
-
-### Bash モード（フォールバック）
-
-MCP が利用できない場合は `codex exec`（ステートレス実行）にフォールバック:
-
-```
-Claude Code → Bash tool → codex exec → stdout 取得 → パース
-```
-
-- プロンプトを stdin から渡し、結果を stdout で受け取るシンプルな構造
-- 各呼び出しは独立（会話コンテキストはプロンプト内に明示的に含める）
-- `codex_run_exec()` が入出力、ANSI エスケープ除去、exit code ハンドリングを統合処理
-
-### モード自動判定
-
-スキル起動時に MCP の可用性を自動プローブし、利用可能なら MCP モード、不可なら Bash モードにフォールバックします。
+- **ステートフル**: `codex_run_exec_session()` が thread id をセッション状態（`tmp/codex-session-{task_id}.json`）に保存し、次のターンを `codex exec resume` で継続します（multi-turn exchange で履歴再構築不要）。
+- **応答本文**: `-o` の出力ファイルのみを正とします。イベントログ（`*.jsonl`）と stderr（`*.stderr.log`）は診断用に隣へ保存されます。
+- **1 スレッド = 1 sandbox**: 読み取り専用の相談と workspace-write の実装は別スレッドにします。
+- **安全な失敗処理**: 戻り値で分類し、「再開対象スレッドが存在しない（ターン未開始）」場合だけ自動で 1 回再構築します。実行結果が不明な失敗（ファイル変更済みの可能性がある場合を含む）は自動再実行せず、ユーザーに確認します。
 
 ## プロジェクト構造
 
@@ -123,22 +113,25 @@ codex-collab/
 
 `scripts/codex-helpers.sh` には、コマンド間で共有される関数が定義されています:
 
-**コア関数（Bash fallback 用の Codex 実行）:**
-- `codex_run_exec()` - codex exec のラッパー（stdin パイプ、ANSI 除去、出力保存、exit code ハンドリング）
+**コア関数（Codex 実行）:**
+- `codex_run_exec_session()` - `codex exec --json` / `codex exec resume` のラッパー（thread id を返す。戻り値 0/2/3/4/5 で失敗を分類）
+- `codex_extract_thread_id()` - JSONL の `thread.started` イベントから thread id を抽出
+- `codex_run_exec()` - codex exec のステートレス実行ラッパー（stdin パイプ、ANSI 除去、出力保存、exit code ハンドリング）
 - `codex_build_exec_command()` - codex exec コマンド文字列の構築
 - `codex_write_prompt()` - プロンプトを一時ファイルに書き出し
 - `codex_strip_ansi()` - ANSI エスケープコード除去
 
-**レビュー解析（Bash fallback 用）:**
+**レビュー解析:**
 - `codex_run_review()` - codex review --uncommitted のラッパー（sandbox_mode 指定、ANSI 除去、出力保存、モデル retry、exit code ハンドリング）
 - `codex_infer_verdict()` - レビューレスポンスから verdict を推定（メタデータ → [P1]-[P4] → findings なし pass）
 - `codex_extract_review_findings()` - レビューレスポンスから findings を抽出
 
-**セッション状態管理（MCP/Bash デュアルモード用）:**
+**セッション状態管理（exec スレッド用）:**
 - `codex_save_session_state()` - セッション状態を JSON ファイルに保存（task_id 単位で分離）
-- `codex_load_session_state()` - セッション状態を読み込み（MODE, THREAD_ID 等をグローバル変数にセット）
-- `codex_save_thread()` - 名前付きスレッドを保存（claude-leads の Thread B/C 用）
-- `codex_load_thread()` - 名前付きスレッドを読み込み
+- `codex_load_session_state()` - セッション状態を読み込み（MODE, THREAD_ID 等をグローバル変数にセット。旧 mcp/bash 形式は自動移行）
+- `codex_save_thread()` / `codex_save_thread_session()` - 名前付きスレッドを保存（claude-leads の Thread B/C 用、`uuid|sandbox` 形式）
+- `codex_load_session_thread()` - メインスレッドを指定 sandbox で再開できる場合のみ UUID を返す（0 / 1 / 2）
+- `codex_load_thread()` / `codex_load_thread_sandbox()` - 名前付きスレッドの UUID / sandbox を読み込み
 - `codex_sanitize_task_id()` - task_id のファイル名安全化（英数字・ハイフン・アンダースコアのみ）
 - `codex_json_escape()` - JSON 値のエスケープ（引用符・バックスラッシュ・改行）
 - `codex_diff_tier()` - diff のサイズに応じてティア判定（small/medium/large）
@@ -170,8 +163,8 @@ codex-collab/
 ```
 
 **特徴:**
-- MCP モードではステートフルなセッションで Codex と対話
-- Bash フォールバック: `codex exec` によるステートレス実行
+- `codex exec` + `codex exec resume` でスレッドを継続し、ステートフルに Codex と対話
+- 再開対象スレッドが消えている場合のみ、保存済みの入力から新しいスレッドで 1 回だけ再構築
 - Codex CLI が未インストールの場合は Claude-only モードにフォールバック
 
 ### `/collab-planning` コマンド
@@ -365,7 +358,7 @@ language: ja
 | `exchange.enabled` | `true` | Planning exchangeのグローバルキルスイッチ (codex-leads) |
 | `exchange.max_iterations` | `3` | Planning exchangeの最大ラウンド数 |
 | `exchange.user_confirm` | `on_important` | ユーザー確認タイミング (never, always, on_important) |
-| `exchange.history_mode` | `summarize` | 履歴管理方式: full=全履歴保持, summarize=最新2ラウンドのみ全文。**Bash fallback 専用**（MCPモードではスレッドが履歴を保持） |
+| `exchange.history_mode` | `summarize` | 履歴管理方式: full=全履歴保持, summarize=最新2ラウンドのみ全文。**再構築専用**（通常は `codex exec resume` のスレッドが履歴を保持。再開対象スレッドが消えた場合のみ使用） |
 | `review.enabled` | `true` | Review iterationの有効化 (codex-leads) |
 | `review.max_iterations` | `5` | Review iterationの最大ラウンド数（ゴールが明確なので多め） |
 | `review.max_verdict_retries` | `3` | verdict が取れない/不明瞭な場合のリトライ回数 |
@@ -376,7 +369,7 @@ language: ja
 | `claude_leads.review.max_iterations` | `3` | Claudeレビュー修正ループの上限 (claude-leads) |
 | `collab_planning.max_iterations` | `3` | 計画レビュー改善サイクルの上限 |
 | `collab_planning.user_confirm` | `on_important` | ユーザー確認タイミング (never, always, on_important) |
-| `codex.wait_timeout` | `180` | `codex exec` の最大実行時間（秒、max 600）。**Bash fallback 専用**（MCPモードでは無視） |
+| `codex.wait_timeout` | `180` | Codex 1 ターンの最大実行時間（秒、max 600 = Bash tool の上限） |
 
 ### 設定の優先順位
 

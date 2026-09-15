@@ -20,6 +20,8 @@ STOP conditions を守り、完了時に自分の行を更新すること。
 
 | 007 | フック検出対象の縮小（副作用持ち 4 関数 + マーカー厳格化 + ソフトガード再定義） | P3 | S–M | 006 (DONE・マージ済み) | DONE（2026-06-12 executor 実行・レビュー承認済み。ブランチ `feat/hook-scope-reduction`、コミット `d1feecc`（v0.33.0）、PR #62（CI green）。done criteria 全件をレビュアーが worktree で再検証済み（hook 22/22・helpers 99/99・lint PASS・広域パターン削除 grep 0・docs 2 ファイル同期・Sunset criteria 追加）。逸脱 1 件（done criteria の grep を満たすためのコメント文言調整）は文書化済みで妥当。2026-06-14 マージ済み（`f70cdb2`）） |
 
+| 008 | MCP 経路を廃止し `codex exec` + `exec resume` を唯一の通信経路にする（codex-cli 0.154.0 の `codex mcp-server` 削除対応） | P1 | L | — | IN PROGRESS（2026-09-15 実装・ゲート試験 5.1 a〜f 実施済み、Codex レビュー 3 ラウンドで pass（P2×5 等を修正）、ブランチ `feat/exec-resume-migration`、v0.38.0。スモーク: /devils-advocate を実 codex・zsh で 3 ラウンド実行し 新規 rc=0 → resume（同一 id）→ 無効 UUID で rc=3 → 1 回再構築 rc=0、旧 mcp state 移行を確認（2026-09-16）。未完: 残り 5 コマンドのスモーク、shellcheck（CI で確認）。逸脱: 説明用の `codex mcp-server` 言及を commands/codex-collab.md Notes と CLAUDE.md に各 1 行残置、公開 API 追加 `codex_load_session_thread`） |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes

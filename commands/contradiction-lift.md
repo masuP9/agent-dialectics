@@ -2,7 +2,7 @@
 name: contradiction-lift
 description: Have Claude and Codex solve the same question independently, then lift the divergence to a higher frame (Aufhebung) — a selection mechanism or an honest aporia, never an average
 argument-hint: [question] [--mode codex|claude-only] [--max-lift-attempts N]
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
 ---
 
 # Contradiction Lift
@@ -88,17 +88,16 @@ Both solvers answer `Q` against the same contract, **sealed** (neither sees the 
   ```
   Write the returned result under `### Solution A (Claude)` (the **orchestrator** writes the state file, not the subagent). Keep `solver_a_role: claude-subagent`.
 - **Solver B (sealed) — by `mode`:**
-  - `mode: codex` → **Codex** (fresh thread, read-only):
+  - `mode: codex` → **Codex** (fresh thread, read-only). Write `$LANG_DIRECTIVE` + Decision Contract + sealed-solution-template (**NEVER include Solution A**) to a prompt file:
+    ```bash
+    export CODEX_SKILL_CONTEXT=1   # plus the Step 0 helper-loading block (own shell per block)
+    PROMPT_FILE=$(codex_tmp_path "contradiction-lift-solver-b-prompt.txt")
+    OUTPUT_FILE=$(codex_tmp_path "contradiction-lift-solver-b-output.md")
+    rc=0
+    SOLVER_B_THREAD=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "") || rc=$?
+    echo "codex rc=$rc thread=$SOLVER_B_THREAD"
     ```
-    mcp__codex__codex(
-      prompt: "<Decision Contract + sealed-solution-template>",   // NEVER include Solution A
-      developer-instructions: "<LANG_DIRECTIVE>",
-      sandbox: "read-only",
-      cwd: "<project root>"
-    )
-    ```
-    Save the threadId as `solver_b_thread_id`; write the result under `### Solution B (Codex)`.
-    Bash fallback: write the prompt to a file and `codex_run_exec "$PROMPT_FILE" "$OUTPUT_FILE" read-only`; set `solver_b_thread_id: bash-exec-solver`.
+    On `rc=0` save `solver_b_thread_id: "exec:<uuid>"` and write the output file's content under `### Solution B (Codex)`. `rc=4/5` → never retried automatically; ask the user (retry / claude-only Solver B / stop).
   - `mode: claude-only` → a **second fresh Claude subagent** (Task, analysis-only — same prompt constraints as Solver A), set `solver_b_thread_id: claude-subagent-solverB`; write under `### Solution B (Claude #2)`. Warn that independence is context-only (same prior).
 - **Sealing guards:** dispatch both before reading either; never put Solution A into Solver B's prompt (or vice versa) before both are sealed; the orchestrator authors neither.
 - **Fallbacks (degraded):**
@@ -112,13 +111,10 @@ Set `state: sealed`.
 Anonymize the two solutions as **X / Y** and delegate mapping to a **fresh** role (a different role from Solver B) using `references/divergence-map-template.md`. The mapper may be a **fresh Claude subagent** (`Task`, set `mapper_role: claude-subagent`) or a **fresh Codex thread** (set `mapper_role: codex-thread`):
 
 ```
-# Codex-thread option:
-mcp__codex__codex(
-  prompt: "<contract + Solution X + Solution Y, anonymized; build the typed disagreement ledger with flip-test>",
-  developer-instructions: "<LANG_DIRECTIVE>",
-  sandbox: "read-only",
-  cwd: "<project root>"
-)
+# Codex-thread option (always a NEW thread — never resume solver_b_thread_id):
+#   prompt file = LANG_DIRECTIVE + contract + Solution X + Solution Y (anonymized)
+#                 + "build the typed disagreement ledger with flip-test"
+#   rc=0; MAPPER_THREAD=$(codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "") || rc=$?
 # Subagent option:
 Task(subagent_type: "general-purpose", description: "Divergence Mapper",
      prompt: "<contract + anonymized X/Y; build the typed disagreement ledger with flip-test>. Analysis only: do NOT edit/write/commit files; return the ledger as your final message.")
@@ -126,7 +122,7 @@ Task(subagent_type: "general-purpose", description: "Divergence Mapper",
 
 > **All Task-dispatched roles** (Solver A, Solver B in claude-only, Mapper, Lift Architect, Meta Auditor, and the Phase 4 party re-seed) carry the **same analysis-only constraint** — no file writes; the orchestrator records their returned artifact into the state file.
 
-- Save the mapper **actor key** in `mapper_thread_id`: Codex `threadId` (MCP) / `bash-exec-mapper` (Bash) / `claude-subagent-mapper` (subagent).
+- Save the mapper **actor key** in `mapper_thread_id`: `exec:<uuid>` (Codex thread) / `claude-subagent-mapper` (subagent).
 - Type each disagreement (`semantic|empirical|causal|normative|constraint|uncertainty`) and mark **load-bearing** ones via the **flip-test** (flip only that premise — does the conclusion/decision rule change?).
 - Append `## Divergence Ledger`; set `state: mapped`.
 - **No material divergence:** if the ledger has **no load-bearing disagreement**, set `state: no_material_divergence` and `outcome: no_material_divergence` (no lift attempted), and report that both solutions share the load-bearing core. **Do not fabricate a contradiction** — skip to Step 9 with this outcome.
@@ -149,16 +145,17 @@ For the disagreements that remain, each party steelmans the **other**: condition
 
 1. **Steelman (both sides, parallel).** Each party steelmans the **other**, seeded with Solution A + Solution B:
    - Claude side → fresh subagent (analysis-only): `Task(... "Steelman the OTHER side (Y). Output only the steelman.")` → "A-steelmans-B".
-   - Codex side (`mode: codex`) → `codex-reply(solver_b_thread_id, "Steelman the OTHER side …")` → "B-steelmans-A".
+   - Codex side (`mode: codex`) → resume Solver B's thread: `codex_run_exec_session "$PROMPT_FILE" "$OUTPUT_FILE" read-only "" "<uuid of solver_b_thread_id>"` with "Steelman the OTHER side …" → "B-steelmans-A".
 2. **Cross-review (accept / repair-once).** The orchestrator hands each steelman to the party it is *about*:
-   - "A-steelmans-B" → to **B** (`codex-reply`): "Is your reasoning represented faithfully? Reply `accept` or `repair once`."
+   - "A-steelmans-B" → to **B** (resume `solver_b_thread_id` again): "Is your reasoning represented faithfully? Reply `accept` or `repair once`."
    - "B-steelmans-A" → to a **fresh Claude subagent** seeded with Solution A + the steelman: same accept / repair-once prompt.
 3. **Repair once (if requested).** The orchestrator returns the repair request to the **original steelman author** (the other party) for **one** revision, then re-reviews once.
 4. **Record.** `accept` → the truth-moment is conserved; **still not accepted after the one repair → mark it `uncertified`** in `## Preservation` (it will fail the Audit's Conservation test → `aporia`).
 
 **By mode / fallback:**
 - `mode: claude-only` → every Codex step above becomes a fresh re-seeded Claude subagent (`claude-subagent-preserveB` for the B side); warn that reviews are same-prior.
-- **No Task tool** → the re-seed is impossible, so the orchestrator performs the **Claude-side** steelman and review itself (degraded — this is the documented Phase-4 exception; note it in the report); the Codex side still uses `codex-reply` when available.
+- **No Task tool** → the re-seed is impossible, so the orchestrator performs the **Claude-side** steelman and review itself (degraded — this is the documented Phase-4 exception; note it in the report); the Codex side still resumes `solver_b_thread_id` when available.
+- **Solver B thread not resumable** (`solver_b_thread_id` has no `exec:` prefix — a legacy MCP id or `bash-exec-*` sentinel — or resume returns `rc=3`): start a **new** Codex thread re-seeded with **Solution B + the step's input only** (never Solution A's authorship context beyond what the step requires), save it as the new `solver_b_thread_id: "exec:<uuid>"`, and note the re-seed in `## Preservation`. `rc=4/5` → ask the user; no automatic retry.
 
 Append `## Preservation`; set `state: preserved`.
 
@@ -166,11 +163,11 @@ Append `## Preservation`; set `state: preserved`.
 
 ### Step 7: Phase 5 — Lift Construction (anonymized, fresh thread)
 
-Delegate to a **fresh** "Lift Architect" role (anonymized inputs) — a Claude subagent (`Task`, set `lift_role: claude-subagent`) or a Codex thread (set `lift_role: codex-thread`) — using `references/lift-audit-template.md`. Build a **selection mechanism** `f(C) → A | B | N`, not a position. Required: conserved moments of both; any **new** variable/relation; an example selecting A, one selecting B, and **one differing from a simple average**; failure conditions. `Q'` is optional (a threshold/ordering/option-value/reversibility-staged decision also counts). Save `lift_role` and the `lift_thread_id` **actor key** (Codex `threadId` / `bash-exec-lift` / `claude-subagent-lift`); append `## Lift`; increment `lift_attempts`; set `state: lifted`.
+Delegate to a **fresh** "Lift Architect" role (anonymized inputs) — a Claude subagent (`Task`, set `lift_role: claude-subagent`) or a Codex thread (set `lift_role: codex-thread`) — using `references/lift-audit-template.md`. Build a **selection mechanism** `f(C) → A | B | N`, not a position. Required: conserved moments of both; any **new** variable/relation; an example selecting A, one selecting B, and **one differing from a simple average**; failure conditions. `Q'` is optional (a threshold/ordering/option-value/reversibility-staged decision also counts). Save `lift_role` and the `lift_thread_id` **actor key** (`exec:<uuid>` for a new Codex thread / `claude-subagent-lift`); append `## Lift`; increment `lift_attempts`; set `state: lifted`.
 
 ### Step 8: Phase 6 — Lift Audit (independent thread)
 
-Delegate the audit to an **independent** role that did **not** build the lift. **Prefer cross-model pairing**: if `lift_role: claude-subagent`, run the audit on **Codex** (set `audit_role: codex-thread`); if `lift_role: codex-thread`, run the audit on a **Claude subagent** (set `audit_role: claude-subagent`) — so a correlated blind spot is **far less likely** to pass both build and audit. Save the `audit_thread_id` **actor key** (Codex `threadId` / `bash-exec-audit` / `claude-subagent-audit`) and keep `audit_thread_id ≠ lift_thread_id` — the per-role sentinels **record** this distinctness even when both roles are Claude subagents (`claude-subagent-audit ≠ claude-subagent-lift`); it is a procedural record, not a runtime proof, so always dispatch a **new** subagent per role. Run all **7 tests** (Conservation, Discrimination, Novelty, Non-vacuity, Dominance, Falsifiability, Feasibility) and demand the **causal mechanism** ("why does that condition change the choice?"). Append `## Audit`.
+Delegate the audit to an **independent** role that did **not** build the lift. **Prefer cross-model pairing**: if `lift_role: claude-subagent`, run the audit on **Codex** (set `audit_role: codex-thread`); if `lift_role: codex-thread`, run the audit on a **Claude subagent** (set `audit_role: claude-subagent`) — so a correlated blind spot is **far less likely** to pass both build and audit. Save the `audit_thread_id` **actor key** (`exec:<uuid>` for a new Codex thread / `claude-subagent-audit`) and keep `audit_thread_id ≠ lift_thread_id` — the per-role sentinels **record** this distinctness even when both roles are Claude subagents (`claude-subagent-audit ≠ claude-subagent-lift`); it is a procedural record, not a runtime proof, so always dispatch a **new** subagent per role. Run all **7 tests** (Conservation, Discrimination, Novelty, Non-vacuity, Dominance, Falsifiability, Feasibility) and demand the **causal mechanism** ("why does that condition change the choice?"). Append `## Audit`.
 
 - **All 7 pass AND the causal mechanism is stated (causal check = yes)** → `outcome: lifted`, `state: accepted` → Step 9. (A 7/7 with `causal check = no` does **not** pass — a mechanism-less router is not a lift.)
 - **Any fail** and `lift_attempts < max_lift_attempts` → return to **Step 7** (reconstruct once).
@@ -183,7 +180,7 @@ Report using the **Output Format** in SKILL.md — the **Accepted lift** block (
 ## Error Handling
 
 - **Codex unavailable in codex mode:** auto-fall back to `claude-only`; **warn** that independence is weak (two passes by the same model).
-- **Solver B / a fresh-thread role fails:** retry once; if it still fails, **and the Task tool is available**, fall back to a fresh Claude subagent for that role with an explicit independence caveat (same-prior); **if the Task tool is unavailable too**, do not silently degrade — **stop**, leave `state` at its last valid value (do not invent a new state), and report the **run** as incomplete (no cross-context role could be produced).
+- **Solver B / a fresh-thread role fails** (by `codex_run_exec_session` return code): `rc=2` → fix the precondition and re-run; `rc=3` (a resumed thread is gone) → re-seed a new thread for that role once; `rc=4`/`rc=5` → **no automatic retry** — ask the user whether to retry. If the user declines or it still fails, **and the Task tool is available**, fall back to a fresh Claude subagent for that role with an explicit independence caveat (same-prior); **if the Task tool is unavailable too**, do not silently degrade — **stop**, leave `state` at its last valid value (do not invent a new state), and report the **run** as incomplete (no cross-context role could be produced).
 - **Lift keeps failing audit:** after `max_lift_attempts`, declare an **honest aporia** (do not manufacture a synthesis — that disguises an average).
 - **Early stop requested:** report the current `state` (sealed solutions / ledger / lift so far) and note no lift was reached.
 
@@ -199,6 +196,6 @@ Report using the **Output Format** in SKILL.md — the **Accepted lift** block (
 - **Sealing is structural**: Solver A is a fresh Claude subagent (not the orchestrator), dispatched in parallel with Solver B; the orchestrator authors neither and reads neither until both return.
 - **Two kinds of independence** (see SKILL.md → "Independence: two kinds"): a Claude subagent gives **context-independence** (fresh window, no history) but **not prior-independence**. Keep **solvers cross-model** (Claude subagent × Codex), and **pair verification across models** (Claude-built lift → Codex audit, and vice versa). A same-model agreement is not confirmation.
 - **The orchestrator is dispatch-only** — it never authors a solution, steelman, lift, or audit (one documented exception: the Task-tool-unavailable fallback, where **Solver A and its Phase 4 party actions** revert to the orchestrator and sealing/context-separation degrade — flag both in the report).
-- **Actor keys**: subagent roles record a `claude-subagent-<role>` sentinel in their `*_thread_id` so the `audit ≠ lift` distinctness check holds across MCP / Bash / subagent backends (a procedural record, not a runtime proof — freshness comes from always dispatching a new subagent). `claude-only` mode and the no-Task fallback cannot be cross-model — say so and distrust same-model agreement.
+- **Actor keys**: subagent roles record a `claude-subagent-<role>` sentinel in their `*_thread_id` and Codex roles record `exec:<uuid>` (always a new thread per role), so the `audit ≠ lift` distinctness check holds across Codex / subagent backends (a procedural record, not a runtime proof — freshness comes from always dispatching a new subagent). `claude-only` mode and the no-Task fallback cannot be cross-model — say so and distrust same-model agreement.
 - **Never optimize for agreement / average / residual-shrink.** A diluted middle ground is failure; an honest aporia beats a fake third term.
 - All bash blocks use `awk`/`sed` for safe text substitution (use `sed`, not `awk '{print $2}'`, inside command bash blocks — `$2` collides with slash-command positional substitution).

@@ -253,6 +253,48 @@ else
   fail "case 22: comment + line-start export CODEX_SKILL_CONTEXT=1 is allowed (commands/*.md real shape)" "expected exit 0, got $result"
 fi
 
+# Case 23: stateful exec / thread helpers (Plan 008) — each blocked when called directly (exit 2)
+# \b in the pattern does not match run_exec -> run_exec_session or load_thread -> load_thread_sandbox,
+# so every name must be listed explicitly.
+# shellcheck disable=SC2016 # literal command strings for the hook
+for helper_cmd in \
+  'codex_run_exec_session p.txt out.md read-only' \
+  'T=$(codex_run_exec_session p.txt out.md read-only "" "$T") || rc=$?' \
+  'codex_save_thread_session t1 threadC 11111111-1111-4111-8111-111111111111 workspace-write' \
+  'codex_load_session_state t1 > /dev/null' \
+  'T=$(codex_load_session_thread t1 read-only) || rc=$?' \
+  'x=$(codex_load_thread t1 threadB)' \
+  'codex_load_thread_sandbox t1 threadC'; do
+  result=$(run_hook "$helper_cmd")
+  if [ "$result" = "2" ]; then
+    pass "case 23: direct call is blocked: $helper_cmd"
+  else
+    fail "case 23: direct call is blocked: $helper_cmd" "expected exit 2, got $result"
+  fi
+done
+
+# Case 24: same helpers with line-start CODEX_SKILL_CONTEXT=1 marker — allowed (exit 0)
+# shellcheck disable=SC2016 # literal $(...) / $? are part of the command string fed to the hook
+result=$(run_hook "$(printf 'export CODEX_SKILL_CONTEXT=1\nrc=0\nT=$(codex_run_exec_session p.txt out.md read-only) || rc=$?\ncodex_load_thread_sandbox t1 threadC')")
+if [ "$result" = "0" ]; then
+  pass "case 24: CODEX_SKILL_CONTEXT=1 marker allows stateful exec / thread helpers"
+else
+  fail "case 24: CODEX_SKILL_CONTEXT=1 marker allows stateful exec / thread helpers" "expected exit 0, got $result"
+fi
+
+# Case 25: pure helpers added by Plan 008 are not guarded (exit 0)
+for pure_cmd in \
+  'codex_extract_thread_id out.jsonl' \
+  'codex_is_valid_uuid 11111111-1111-4111-8111-111111111111' \
+  'codex exec -s read-only resume 11111111-1111-4111-8111-111111111111 --json -o out.md - < p.txt'; do
+  result=$(run_hook "$pure_cmd")
+  if [ "$result" = "0" ]; then
+    pass "case 25: non-target command is allowed: $pure_cmd"
+  else
+    fail "case 25: non-target command is allowed: $pure_cmd" "expected exit 0, got $result"
+  fi
+done
+
 # ==============================================================================
 # Summary
 # ==============================================================================

@@ -63,13 +63,13 @@ When **not** in skill context, the hook checks for these patterns to identify co
 
 | Pattern | Description | Limitation |
 |---------|-------------|------------|
-| `(^\|[;&\|]\|\$\(\|`)[[:space:]]*codex_(run_exec\|run_review\|save_session_state\|save_thread)\b` | Side-effect helper calls at execution position (external execution / review / session-state writes) | Pure transforms and mentions in argument text are allowed |
+| `(^\|[;&\|]\|\$\(\|`)[[:space:]]*codex_(run_exec\|run_exec_session\|run_review\|save_session_state\|save_thread\|save_thread_session\|load_session_state\|load_session_thread\|load_thread\|load_thread_sandbox)\b` | Side-effect helper calls at execution position (external execution / review / session-state writes; `load_*` migrate legacy state files in place) | Pure transforms and mentions in argument text are allowed |
 
 ### Known Limitations
 
 - **Indirect execution**: Patterns like `bash -c 'codex_run_exec ...'` or `env codex_run_exec ...` are not detected — this is an accepted tradeoff in the fail-open design
 - **Heredoc false positives**: If a heredoc body has a guarded helper name at line start, it may trigger a false positive (the anchor matches line-start text regardless of heredoc context)
-- **Pure transforms intentionally unguarded**: `codex_strip_ansi`, `codex_infer_verdict`, `codex_extract_review_findings`, and other read-only/transform helpers are intentionally **not** guarded — adding them would increase false positives with no safety benefit
+- **Pure transforms intentionally unguarded**: `codex_strip_ansi`, `codex_infer_verdict`, `codex_extract_review_findings`, `codex_extract_thread_id`, and other transform helpers are intentionally **not** guarded — adding them would increase false positives with no safety benefit
 - **Source/HELPERS=/CODEX_PROMPT intentionally unguarded**: These speculative patterns have been removed as they were outside the scope of the soft guard's purpose (see "Sunset criteria" below)
 
 ### Sunset criteria
@@ -88,7 +88,9 @@ If you try to execute a codex-collab side-effect helper outside a skill context,
 
 ```
 This command calls a codex-collab side-effect helper directly
-(codex_run_exec / codex_run_review / codex_save_session_state / codex_save_thread).
+(codex_run_exec / codex_run_exec_session / codex_run_review /
+ codex_save_session_state / codex_save_thread / codex_save_thread_session /
+ codex_load_session_state / codex_load_session_thread / codex_load_thread / codex_load_thread_sandbox).
 
 This is a soft guard against accidental direct use of internal APIs,
 not a security boundary. Preferred entry points:

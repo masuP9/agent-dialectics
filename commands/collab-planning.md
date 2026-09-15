@@ -2,7 +2,7 @@
 name: collab-planning
 description: Create and refine implementation plans collaboratively with Codex (plan only, no implementation)
 argument-hint: [idea/task] [--mode codex|claude-only] [--max-iterations N]
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion
 ---
 
 # Collaborative Planning
@@ -117,17 +117,9 @@ echo "Max iterations: $MAX_ITERATIONS"
 echo "Language: $LANGUAGE"
 ```
 
-### Step 1b: Determine Communication Mode (MCP vs Bash)
+### Step 1b: Initialize Codex Session
 
-**If mode = codex**, probe MCP availability:
-
-Call `mcp__codex__codex` with a lightweight ping:
-```
-mcp__codex__codex(prompt: "ping", sandbox: "read-only")
-```
-
-- **Success** → MCP mode. Save the returned `threadId`.
-- **Failure** (tool not available, permission denied, error) → Bash mode.
+**If mode = codex**, Codex is driven through `codex exec --json` (iteration 1) and `codex exec resume <thread_id>` (iteration 2+). The review thread id is kept in session state.
 
 **Save session state:**
 
@@ -147,11 +139,12 @@ fi
 [ -f "$HELPERS" ] && source "$HELPERS"
 
 TASK_ID="planning-$$-$(date +%s)"
-# MODE and THREAD_ID are set by the probe result above
-# MODE="mcp" or "bash", THREAD_ID from probe response (empty for bash)
-codex_save_session_state "$TASK_ID" "$MODE" "$THREAD_ID"
-echo "Communication mode: $MODE (task_id: $TASK_ID)"
+# No review thread yet: iteration 1 creates it
+codex_save_session_state "$TASK_ID" "exec" "" "read-only" "collab-planning"
+echo "task_id: $TASK_ID"
 ```
+
+> Shell variables do not survive between Bash tool calls. Write the printed `task_id` literally into later blocks (`TASK_ID="planning-..."`).
 
 **3. Generate task ID and initialize state file:**
 
@@ -195,7 +188,7 @@ EOFSTATE
 awk -v task_id="$TASK_ID" \
     -v timestamp="$(date -Iseconds)" \
     -v mode="${MODE:-codex}" \
-    -v comm_mode="${COMM_MODE:-bash}" \
+    -v comm_mode="${COMM_MODE:-exec}" \
     -v max_iterations="${MAX_ITERATIONS:-3}" \
     -v task="$TASK_DESCRIPTION" \
     '{
@@ -280,43 +273,9 @@ Using the context gathered in Step 2 and the user's task description, create a p
 
 **If mode = codex:**
 
-**Choose communication path:**
-
-#### MCP Path (primary)
-
-**Iteration 1:** Start a new review session (or continue from Step 1b ping thread):
-
-If a `threadId` already exists from the MCP probe, use `codex-reply`:
-```
-mcp__codex__codex-reply(
-  threadId: "[threadId from probe]",
-  prompt: "[Review prompt with plan draft — see template below]"
-)
-```
-
-Otherwise start a new session:
-```
-mcp__codex__codex(
-  prompt: "[Review prompt with plan draft]",
-  developer-instructions: "[Language directive]",
-  sandbox: "read-only",
-  cwd: "[project directory]"
-)
-```
-Save the returned `threadId`.
-
-**Iteration 2+:** Continue the existing thread:
-```
-mcp__codex__codex-reply(
-  threadId: "[threadId]",
-  prompt: "[Updated plan + previous snapshot history]"
-)
-```
-- **Key advantage**: Thread retains all prior context. Only send the updated plan and latest changes.
-- Parse review feedback directly from tool result.
-- If MCP fails → fall through to Bash path.
-
-#### Bash Path (fallback)
+**Thread handling:**
+- **Iteration 1:** start a new read-only review thread (`codex exec --json`), save its id.
+- **Iteration 2+:** resume the same thread (`codex exec resume`). The thread retains prior reviews, so Codex can check which of its earlier findings were resolved. The prompt below is self-contained (plan + snapshot history), which also makes it the rebuild prompt when the thread is lost.
 
 1. Prepare review prompt:
 
@@ -447,7 +406,7 @@ echo "Review prompt prepared: $REVIEW_PROMPT"
 echo "Current iteration: $CURRENT_ITERATION"
 ```
 
-2. Run codex exec to get review:
+2. Run Codex review (new thread on iteration 1, resume on 2+):
 
 ```bash
 export CODEX_SKILL_CONTEXT=1
@@ -462,17 +421,36 @@ fi
 [ -z "$HELPERS" ] || [ ! -f "$HELPERS" ] && HELPERS="$(pwd)/scripts/codex-helpers.sh"
 [ -f "$HELPERS" ] && source "$HELPERS"
 
+TASK_ID="planning-REPLACE"   # value printed in Step 1b
 TMP_DIR="$(pwd)/${CODEX_TMP_DIR:-tmp}"
 REVIEW_PROMPT="$TMP_DIR/collab-planning-review-prompt.txt"
 REVIEW_OUTPUT="$TMP_DIR/collab-planning-review-output.md"
-
-# Run codex exec (blocking - output goes to file)
 SANDBOX="read-only"
-codex_run_exec "$REVIEW_PROMPT" "$REVIEW_OUTPUT" "$SANDBOX"
-echo "Review output saved to: $REVIEW_OUTPUT"
+
+# 0 = resume the review thread, 1 = new thread (iteration 1 / legacy state), 2 = stop
+load_rc=0
+PREV_THREAD_ID=$(codex_load_session_thread "$TASK_ID" "$SANDBOX") || load_rc=$?
+if [ "$load_rc" -eq 2 ]; then
+  echo "STATE_IO_ERROR"
+else
+  [ "$load_rc" -eq 0 ] || PREV_THREAD_ID=""
+  rc=0
+  NEW_THREAD_ID=$(codex_run_exec_session "$REVIEW_PROMPT" "$REVIEW_OUTPUT" "$SANDBOX" "" "$PREV_THREAD_ID") || rc=$?
+  echo "codex rc=$rc thread=$NEW_THREAD_ID"
+  if [ "$rc" -eq 0 ]; then
+    codex_save_session_state "$TASK_ID" "exec" "$NEW_THREAD_ID" "$SANDBOX" "collab-planning" > /dev/null
+    echo "Review output saved to: $REVIEW_OUTPUT"
+  fi
+fi
 ```
 
-> **Note:** `codex exec` is blocking. Set Bash tool `timeout` to `min(wait_timeout + 60, 600) * 1000` ms. If Codex unavailable, fallback to claude-only mode.
+Handle `rc`:
+- `0` → read `$REVIEW_OUTPUT` (the only source of the review text).
+- `3` → the review thread was lost. Re-run the same block **once** after clearing the saved thread (`codex_save_session_state "$TASK_ID" "exec" "" "read-only" "collab-planning"`); the prompt already contains the plan and snapshot history. Record the rebuild in the Iteration Log.
+- `2` / `STATE_IO_ERROR` → report and stop.
+- `4` / `5` → **do not retry automatically.** Show the tail of `tmp/collab-planning-review-output.stderr.log` and ask the user whether to retry, proceed with the current draft, or stop.
+
+> **Note:** The call is blocking. Set Bash tool `timeout` to `min(wait_timeout + 60, 600) * 1000` ms. If Codex unavailable, fallback to claude-only mode.
 
 3. Parse review output and update state file:
 
@@ -704,7 +682,8 @@ If compacted during planning:
 
 1. Run `TaskList` to see progress
 2. Read the state file: `tmp/collab-planning/[task-id].md`
-3. Resume from current phase based on state
+3. The review thread id is in `tmp/codex-session-[task-id].json` (`threadId`). Step 4 resumes it automatically; if `tmp/collab-planning-review-output.jsonl` already contains `turn.completed` for the current iteration, read the output instead of re-running.
+4. Resume from current phase based on state
 
 **State to Phase mapping:**
 | State | Resume at |
@@ -721,4 +700,5 @@ If compacted during planning:
 - All bash blocks use `awk` for safe text substitution
 - Default is 3 iterations but customizable with --max-iterations
 - Sandbox is always read-only (Codex reviews only, no file changes)
+- All review iterations share one Codex thread (`codex exec resume`); only a lost thread (rc=3) is rebuilt automatically
 - **This skill NEVER implements code — it only produces plans**

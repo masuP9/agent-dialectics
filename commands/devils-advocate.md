@@ -2,7 +2,7 @@
 name: devils-advocate
 description: Devil's Advocate methodology to stress-test hypotheses and designs through structured debate
 argument-hint: [proposal] [--mode codex|claude-only] [--max-rounds N]
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion
 ---
 
 # Devil's Advocate Review
@@ -252,33 +252,9 @@ Update state file with Blue Team section using Edit tool:
 
 **If mode = codex:**
 
-**Choose communication path:**
-
-##### MCP Path (primary)
-
-**Round 1:** Start a new MCP session:
-```
-mcp__codex__codex(
-  prompt: "[Critique prompt - same content as Bash path below]",
-  developer-instructions: "[Language directive]",
-  sandbox: "read-only",
-  cwd: "[project directory]"
-)
-```
-- Save the returned `threadId` for subsequent rounds.
-
-**Round 2+:** Continue the existing thread:
-```
-mcp__codex__codex-reply(
-  threadId: "[threadId from Round 1]",
-  prompt: "[Updated critique prompt with Blue Team's response]"
-)
-```
-- **Key advantage**: No debate history reconstruction needed. The thread retains all prior rounds.
-- Parse critique directly from tool result
-- If MCP fails → fall through to Bash path
-
-##### Bash Path (fallback)
+**Thread handling:**
+- **Round 1:** start a new read-only Red Team thread (`codex exec --json`) and save its id in `tmp/codex-session-{TASK_ID}.json`.
+- **Round 2+:** resume that thread (`codex exec resume`), so the Red Team keeps its own earlier critiques. The prompt below also embeds the debate history, which makes it the rebuild prompt if the thread was lost.
 
 1. Prepare critique request prompt:
 
@@ -431,7 +407,7 @@ echo "Critique prompt prepared: $CRITIQUE_PROMPT"
 echo "Current round: $CURRENT_ROUND"
 ```
 
-2. Run codex exec to get critique:
+2. Run Codex to get critique (new thread in Round 1, resume in Round 2+):
 
 ```bash
 export CODEX_SKILL_CONTEXT=1
@@ -447,16 +423,38 @@ fi
 [ -f "$HELPERS" ] && source "$HELPERS"
 
 TMP_DIR="$(pwd)/${CODEX_TMP_DIR:-tmp}"
+DA_DIR="$TMP_DIR/devils-advocate"
 CRITIQUE_PROMPT="$TMP_DIR/devils-advocate-critique-prompt.txt"
 CRITIQUE_OUTPUT="$TMP_DIR/devils-advocate-critique-output.md"
-
-# Run codex exec (blocking - output goes to file)
+if [ -z "${TASK_ID:-}" ]; then
+  TASK_ID=$(basename "$(ls -t "$DA_DIR"/*.md 2>/dev/null | head -1)" .md)
+fi
 SANDBOX="read-only"
-codex_run_exec "$CRITIQUE_PROMPT" "$CRITIQUE_OUTPUT" "$SANDBOX"
-echo "Critique output saved to: $CRITIQUE_OUTPUT"
+
+# Round 1 has no saved thread (load rc=1) → new thread; Round 2+ resumes it; rc=2 → stop
+load_rc=0
+PREV_THREAD_ID=$(codex_load_session_thread "$TASK_ID" "$SANDBOX") || load_rc=$?
+if [ "$load_rc" -eq 2 ]; then
+  echo "STATE_IO_ERROR"
+else
+  [ "$load_rc" -eq 0 ] || PREV_THREAD_ID=""
+  rc=0
+  NEW_THREAD_ID=$(codex_run_exec_session "$CRITIQUE_PROMPT" "$CRITIQUE_OUTPUT" "$SANDBOX" "" "$PREV_THREAD_ID") || rc=$?
+  echo "codex rc=$rc thread=$NEW_THREAD_ID"
+  if [ "$rc" -eq 0 ]; then
+    codex_save_session_state "$TASK_ID" "exec" "$NEW_THREAD_ID" "$SANDBOX" "devils-advocate" > /dev/null
+    echo "Critique output saved to: $CRITIQUE_OUTPUT"
+  fi
+fi
 ```
 
-> **Note:** `codex exec` はブロッキング実行のため、完了待機は不要です。Bash tool の `timeout` を `min(wait_timeout + 60, 600) * 1000` ms に設定してください。Codex が利用できない場合は claude-only モードにフォールバックします。
+> **Note:** ブロッキング実行のため完了待機は不要です。Bash tool の `timeout` を `min(wait_timeout + 60, 600) * 1000` ms に設定してください。Codex が利用できない場合は claude-only モードにフォールバックします。
+>
+> **rc の扱い:**
+> - `0` → 出力ファイルを読む（本文の唯一の正）。
+> - `3`（Red Team スレッドが消えている）→ `codex_save_session_state "$TASK_ID" "exec" "" "read-only" "devils-advocate"` でクリアし、同じブロックを **1 回だけ** 再実行する（プロンプトは討論履歴を含む）。
+> - `2` / `STATE_IO_ERROR` → 停止して報告。
+> - `4` / `5` → 自動再実行しない。`tmp/devils-advocate-critique-output.stderr.log` の末尾を示し、再試行 / claude-only で続行 / 中止をユーザーに確認する。
 
 4. Parse critique from response and update state file:
 

@@ -2,7 +2,7 @@
 name: strong-inference
 description: Apply Strong Inference methodology to investigate problems with competing hypotheses
 argument-hint: [problem description] [--mode codex|claude-only]
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion
 ---
 
 # Strong Inference Investigation
@@ -191,26 +191,7 @@ echo "Task ID: $TASK_ID"
 
 **If mode = codex:**
 
-**Choose communication path:**
-
-##### MCP Path (primary)
-
-Probe MCP availability by calling `mcp__codex__codex`:
-
-```
-mcp__codex__codex(
-  prompt: "[Hypothesis prompt - same content as Bash path below]",
-  developer-instructions: "[Language directive]",
-  sandbox: "read-only",
-  cwd: "[project directory]"
-)
-```
-
-- Save the returned `threadId` for Step 7 (review of findings, same thread)
-- Parse hypotheses directly from tool result
-- If MCP fails → fall through to Bash path below
-
-##### Bash Path (fallback)
+Codex is driven through `codex exec --json`. This step starts a read-only thread whose id is saved in `tmp/codex-session-{TASK_ID}.json`; Step 7 resumes it (`codex exec resume`) so Codex reviews the findings with its hypothesis context.
 
 1. Prepare hypothesis request prompt (complete script that reads from state file):
 
@@ -338,16 +319,27 @@ fi
 [ -f "$HELPERS" ] && source "$HELPERS"
 
 TMP_DIR="$(pwd)/${CODEX_TMP_DIR:-tmp}"
+SI_DIR="$TMP_DIR/strong-inference"
 HYPOTHESIS_PROMPT="$TMP_DIR/strong-inference-hypothesis-prompt.txt"
 HYPOTHESIS_OUTPUT="$TMP_DIR/strong-inference-hypothesis-output.md"
+if [ -z "${TASK_ID:-}" ]; then
+  TASK_ID=$(basename "$(ls -t "$SI_DIR"/*.md 2>/dev/null | head -1)" .md)
+fi
 
-# Run codex exec (blocking - output goes to file)
+# New read-only thread (blocking - response body goes to the output file)
 SANDBOX="read-only"
-codex_run_exec "$HYPOTHESIS_PROMPT" "$HYPOTHESIS_OUTPUT" "$SANDBOX"
-echo "Hypothesis output saved to: $HYPOTHESIS_OUTPUT"
+rc=0
+THREAD_ID=$(codex_run_exec_session "$HYPOTHESIS_PROMPT" "$HYPOTHESIS_OUTPUT" "$SANDBOX" "") || rc=$?
+echo "codex rc=$rc thread=$THREAD_ID"
+if [ "$rc" -eq 0 ]; then
+  codex_save_session_state "$TASK_ID" "exec" "$THREAD_ID" "$SANDBOX" "strong-inference" > /dev/null
+  echo "Hypothesis output saved to: $HYPOTHESIS_OUTPUT"
+fi
 ```
 
-> **Note:** `codex exec` はブロッキング実行のため、完了待機は不要です。Bash tool の `timeout` を `min(wait_timeout + 60, 600) * 1000` ms に設定してください。Codex が利用できない場合は claude-only モードにフォールバックします。
+> **Note:** ブロッキング実行のため完了待機は不要です。Bash tool の `timeout` を `min(wait_timeout + 60, 600) * 1000` ms に設定してください。Codex が利用できない場合は claude-only モードにフォールバックします。
+>
+> **rc の扱い:** `0` → 出力ファイルを読む。`2` → エラー報告して停止。`4`/`5` → 自動再実行せず、`tmp/strong-inference-hypothesis-output.stderr.log` の末尾を示してユーザーに再試行/claude-only 続行/中止を確認する（新規スレッドなので `3` は発生しない）。
 
 4. Parse hypotheses from response and update state file:
 
@@ -518,27 +510,7 @@ fi
 
 **If mode = codex:**
 
-**Choose communication path:**
-
-##### MCP Path (primary)
-
-If a threadId was saved from Step 3, continue the same thread:
-
-```
-mcp__codex__codex-reply(
-  threadId: "[threadId from Step 3]",
-  prompt: "[Review prompt - same content as Bash path below]"
-)
-```
-
-- Codex retains the hypothesis generation context from the same thread
-- No need to resend the full investigation state
-- Parse review directly from tool result
-- If MCP fails (e.g., thread_not_found) → fall through to Bash path
-
-##### Bash Path (fallback)
-
-Request Codex review of findings:
+Request Codex review of findings. The thread from Step 3 is resumed (Codex keeps its hypothesis context); the prompt still embeds the full investigation state, so it doubles as the rebuild prompt if the thread was lost:
 
 ```bash
 export CODEX_SKILL_CONTEXT=1
@@ -619,7 +591,7 @@ EOF
 echo "Review prompt prepared: $REVIEW_PROMPT"
 ```
 
-Then run codex exec using the same pattern as Step 3:
+Then resume the Step 3 thread:
 
 ```bash
 export CODEX_SKILL_CONTEXT=1
@@ -635,14 +607,33 @@ fi
 [ -f "$HELPERS" ] && source "$HELPERS"
 
 TMP_DIR="$(pwd)/${CODEX_TMP_DIR:-tmp}"
+SI_DIR="$TMP_DIR/strong-inference"
 REVIEW_PROMPT="$TMP_DIR/strong-inference-review-prompt.txt"
 REVIEW_OUTPUT="$TMP_DIR/strong-inference-review-output.md"
-
-# Run codex exec (blocking)
+if [ -z "${TASK_ID:-}" ]; then
+  TASK_ID=$(basename "$(ls -t "$SI_DIR"/*.md 2>/dev/null | head -1)" .md)
+fi
 SANDBOX="read-only"
-codex_run_exec "$REVIEW_PROMPT" "$REVIEW_OUTPUT" "$SANDBOX"
-echo "Review output saved to: $REVIEW_OUTPUT"
+
+# 0 = resume the Step 3 thread, 1 = new thread (prompt embeds the full state), 2 = stop
+load_rc=0
+PREV_THREAD_ID=$(codex_load_session_thread "$TASK_ID" "$SANDBOX") || load_rc=$?
+if [ "$load_rc" -eq 2 ]; then
+  echo "STATE_IO_ERROR"
+else
+  [ "$load_rc" -eq 0 ] || PREV_THREAD_ID=""
+  rc=0
+  NEW_THREAD_ID=$(codex_run_exec_session "$REVIEW_PROMPT" "$REVIEW_OUTPUT" "$SANDBOX" "" "$PREV_THREAD_ID") || rc=$?
+  echo "codex rc=$rc thread=$NEW_THREAD_ID"
+  if [ "$rc" -eq 0 ]; then
+    codex_save_session_state "$TASK_ID" "exec" "$NEW_THREAD_ID" "$SANDBOX" "strong-inference" > /dev/null
+    echo "Review output saved to: $REVIEW_OUTPUT"
+  fi
+fi
 ```
+
+- `rc=3`（Step 3 のスレッドが消えている）→ `codex_save_session_state "$TASK_ID" "exec" "" "read-only" "strong-inference"` でスレッドをクリアし、同じブロックを **1 回だけ** 再実行する（プロンプトは調査状態全体を含むので再構築として成立する）。
+- `rc=4`/`5` → 自動再実行しない。stderr ログを示してユーザーに確認する。`STATE_IO_ERROR` → 停止。
 
 **Report to user:**
 
