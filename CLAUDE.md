@@ -2,6 +2,12 @@
 
 このファイルはClaude Codeがこのリポジトリで作業する際のガイダンスを提供します。
 
+## masuP9 との会話で使う言葉
+
+スキルの結果報告や設計の相談では、論理学・哲学・統計の専門用語をそのまま使わず、次の表の言い換えを使う(SKILL.md などの本文はそのままでよい)。
+
+@docs/conversation-glossary.md
+
 ## Codex Leaf Reviewer Mode
 
 Codex 側の `claude-collab` ラッパーから呼び出された場合、CLI の system prompt に `CLAUDE_COLLAB_CALLER=codex` 相当の leaf reviewer 指示が含まれます。
