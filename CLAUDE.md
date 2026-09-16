@@ -165,7 +165,7 @@ PR 作成前に以下をすべて実行し、全テストがパスすること�
 
 ```sh
 bash scripts/test-helpers.sh                              # ヘルパー関数のユニットテスト
-bash skills/claude-collab/scripts/test-claude-helpers.sh  # claude-collab ヘルパーのテスト
+bash codex-skills/claude-collab/scripts/test-claude-helpers.sh  # claude-collab ヘルパーのテスト
 bash hooks/test-enforce-skill-usage.sh                    # PreToolUse フックのテスト
 bash scripts/test-run-codex-role.sh                       # run-codex-role.sh のテスト（node 必須、偽 companion 使用）
 bash scripts/lint-plugin.sh                               # バージョン同期・SKILL.md frontmatter・相対リンク・禁止参照語（PyYAML 必須）

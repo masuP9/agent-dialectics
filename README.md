@@ -34,8 +34,10 @@ Codex のスキルディレクトリへシンボリックリンクを作成し�
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/skills/claude-collab" "${CODEX_HOME:-$HOME/.codex}/skills/claude-collab"
+ln -sfn "$(pwd)/codex-skills/claude-collab" "${CODEX_HOME:-$HOME/.codex}/skills/claude-collab"
 ```
+
+`claude-collab` は Codex 専用なので `codex-skills/` に置いています。Claude Code はこのディレクトリをスキルとして読み込まないため、Claude 側のスキル一覧には出てきません。
 
 Codex で「Claude と一緒に実装して」「Claude にレビューしてもらって」のように依頼すると、`claude-collab` スキルが Claude Code CLI を read-only の相談役として呼び出します。
 

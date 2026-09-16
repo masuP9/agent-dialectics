@@ -14,7 +14,7 @@ jobs:
         run: bash scripts/test-helpers.sh
 
       - name: Run Claude collaboration helper tests
-        run: bash skills/claude-collab/scripts/test-claude-helpers.sh
+        run: bash codex-skills/claude-collab/scripts/test-claude-helpers.sh
 
       - name: Run hook tests
         run: bash hooks/test-enforce-skill-usage.sh
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Shellcheck
-        run: shellcheck --source-path=SCRIPTDIR -x scripts/*.sh hooks/*.sh skills/claude-collab/scripts/*.sh
+        run: shellcheck --source-path=SCRIPTDIR -x scripts/*.sh hooks/*.sh codex-skills/claude-collab/scripts/*.sh
 
       - uses: actions/setup-python@v6
         with:
@@ -68,7 +68,7 @@ jobs:
           import sys
           import yaml
 
-          files = glob.glob("skills/**/*.yaml", recursive=True)
+          files = glob.glob("codex-skills/**/*.yaml", recursive=True)
           failed = False
 
           for path in files:
