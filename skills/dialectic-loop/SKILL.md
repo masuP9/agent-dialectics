@@ -381,19 +381,19 @@ See the template in **Step 7**.
 
 ```bash
 # Basic — validate a claim against a corpus
-/codex-collab:dialectic-loop "User X holds judgments provisionally but cuts actions decisively" --corpus "~/.claude/projects/**/*.jsonl"
+/agent-dialectics:dialectic-loop "User X holds judgments provisionally but cuts actions decisively" --corpus "~/.claude/projects/**/*.jsonl"
 
 # Mode + rounds
-/codex-collab:dialectic-loop --mode claude-only --max-rounds 2 "This API degrades under concurrency"
+/agent-dialectics:dialectic-loop --mode claude-only --max-rounds 2 "This API degrades under concurrency"
 
 # Rotate authorship to reduce bias
-/codex-collab:dialectic-loop --rotate "Codebase favors composition over inheritance"
+/agent-dialectics:dialectic-loop --rotate "Codebase favors composition over inheritance"
 
 # Abduction variant — let Codex generate the hypothesis from the corpus (claim optional)
-/codex-collab:dialectic-loop --abduce --corpus "scripts/**/*.sh"
+/agent-dialectics:dialectic-loop --abduce --corpus "scripts/**/*.sh"
 
 # Japanese
-/codex-collab:dialectic-loop 「この傾向分析の仮説をログで検証して精緻化して」
+/agent-dialectics:dialectic-loop 「この傾向分析の仮説をログで検証して精緻化して」
 ```
 
 ## Compact Recovery

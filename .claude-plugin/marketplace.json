@@ -1,14 +1,14 @@
 {
-  "name": "codex-collab",
+  "name": "agent-dialectics",
   "owner": {
     "name": "masuP9"
   },
   "plugins": [
     {
-      "name": "codex-collab",
+      "name": "agent-dialectics",
       "source": "./",
-      "description": "Claude Code と OpenAI Codex CLI の協調タスク実行プラグイン",
-      "version": "0.40.0",
+      "description": "Claude と Codex に別々の役を割り当てて考えさせる、4つの思考手法プラグイン",
+      "version": "0.41.0",
       "author": {
         "name": "masuP9"
       }

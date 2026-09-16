@@ -184,7 +184,7 @@ State machine: `contract → sealed → mapped → adjudicated → preserved →
 
 1. **Parse options** from the Question above: `--mode <codex|claude-only>`, `--max-lift-attempts <N>` (default 2). The remainder is the question `Q`.
 2. **Determine mode**: default `codex`; honor `--mode`. Codex availability is discovered by the first `run-codex-role.sh` call (exit 2 → degrade per 実行モード). In `claude-only`, **warn** that independence is weak (the core is two *different* models diverging) and recommend `codex`.
-3. **Scope check**: this skill is for questions where multiple reasonable decision rules remain and a single experiment can't settle the whole. If the question is a plain bug / perf comparison / spec-conformance, suggest `/codex-collab:strong-inference`; if it's stress-testing one proposal, suggest `/codex-collab:devils-advocate`; if it's a claim-vs-data check, suggest `/codex-collab:dialectic-loop`.
+3. **Scope check**: this skill is for questions where multiple reasonable decision rules remain and a single experiment can't settle the whole. If the question is a plain bug / perf comparison / spec-conformance, suggest `/agent-dialectics:strong-inference`; if it's stress-testing one proposal, suggest `/agent-dialectics:devils-advocate`; if it's a claim-vs-data check, suggest `/agent-dialectics:dialectic-loop`.
 4. **Generate the task id** (`YYYYMMDD-HHMMSS-<random>`), compute `<state-dir>` (Codex 役の呼び出し), `mkdir -p` it, and write `<state-dir>/state.md` with the `contradiction-lift/v3` schema (see State File) using Write. Set `state: contract`, `degraded: false`, `codex_call_failures: []`.
 
 ### Step 2: Phase 0 — Decision Contract
@@ -437,13 +437,13 @@ Log: <state-dir>/state.md
 
 ```bash
 # Lift two independent solutions to an execution-undecidable question
-/codex-collab:contradiction-lift "Should dialectic-loop stop on fixed rounds or convergence detection?"
+/agent-dialectics:contradiction-lift "Should dialectic-loop stop on fixed rounds or convergence detection?"
 
 # Claude-only (degraded — independence is weak; codex recommended)
-/codex-collab:contradiction-lift --mode claude-only "Composition vs inheritance for this module hierarchy"
+/agent-dialectics:contradiction-lift --mode claude-only "Composition vs inheritance for this module hierarchy"
 
 # Cap lift retries
-/codex-collab:contradiction-lift --max-lift-attempts 1 "Monorepo vs polyrepo for this org"
+/agent-dialectics:contradiction-lift --max-lift-attempts 1 "Monorepo vs polyrepo for this org"
 ```
 
 ## Compact Recovery

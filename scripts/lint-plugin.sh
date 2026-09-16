@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lint-plugin.sh — Plugin consistency checks for codex-collab
+# lint-plugin.sh — Plugin consistency checks for agent-dialectics
 # Checks:
 #   1. Version sync between plugin.json and marketplace.json
 #   2. SKILL.md frontmatter (skills/*/SKILL.md, codex-skills/*/SKILL.md): strict YAML,
@@ -20,7 +20,7 @@ ERRORS=0
 WARNINGS=0
 
 METHOD_SKILLS=(strong-inference devils-advocate dialectic-loop contradiction-lift)
-FORBIDDEN_PATTERN='codex-helpers|codex_run_exec|CODEX_SKILL_CONTEXT|commands/codex-collab|collab-planning|codex-collab\.local\.md|mcp__codex'
+FORBIDDEN_PATTERN='codex-helpers|codex_run_exec|CODEX_SKILL_CONTEXT|commands/codex-collab|collab-planning|codex-collab\.local\.md|mcp__codex|/codex-collab:|codex-collab@codex-collab'
 
 # ─────────────────────────────────────────────
 # Check 1: version sync
@@ -274,7 +274,7 @@ PY
 # Main
 # ─────────────────────────────────────────────
 main() {
-  echo "=== codex-collab plugin consistency lint ==="
+  echo "=== agent-dialectics plugin consistency lint ==="
   echo ""
 
   echo "-- Check 1: Version sync --"

@@ -36,7 +36,7 @@ wrapper の契約（answer.md == rawOutput、失敗時に answer.md を書かな
 以下は Claude Code の外の通常のターミナルで実行する。
 
 ```bash
-REPO=/home/masup9/ghq/github.com/masuP9/codex-collab
+REPO=/home/masup9/ghq/github.com/masuP9/agent-dialectics
 SCRATCH="$HOME/scratch/gate-a-target"          # プラグインのリポジトリとは別の git リポジトリ
 mkdir -p "$SCRATCH" && git -C "$SCRATCH" init -q
 cp "$REPO"/tests/acceptance/fixtures/corpus/*.sh "$SCRATCH"/   # A-2 strong-inference の題材
@@ -96,7 +96,7 @@ seed() {  # seed <method> <task-id>
 
 SKILL.md には再開用の引数がないため、新しいセッションで次のように依頼する（新規 task を作らせない）:
 
-> `/codex-collab:<method>` の Compact Recovery に従って、state dir `<dest>` の中断したタスクを再開してください。新しいタスクは作らないでください。
+> `/agent-dialectics:<method>` の Compact Recovery に従って、state dir `<dest>` の中断したタスクを再開してください。新しいタスクは作らないでください。
 
 ### 0-6. 固定応答 fixture
 
@@ -163,7 +163,7 @@ accepted と aporia の切り替えは **`MOCK_FIXTURES_DIR` を `responses` ↔
 ### A-1-SI-1 strong-inference
 
 - 起動: 0-3
-- 依頼: `/codex-collab:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`（0-7 の一文を添える。固定応答の仮説は backup.sh の月初失敗を前提にしており、題材と無関係に見える）
+- 依頼: `/agent-dialectics:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`（0-7 の一文を添える。固定応答の仮説は backup.sh の月初失敗を前提にしており、題材と無関係に見える）
 - 観察:
   - [ ] `$BASE/strong-inference/<task-id>/hypothesis-r1-1/` に `prompt.md`（1 行目 `<!-- agent-dialectics-role: strong-inference/hypothesis-r1 -->`）、`inputs.json`（`["Problem", "Context"]`）、`answer.md`、`meta.json`、`DONE`
   - [ ] state.md の `## Hypotheses` が fixture の H1〜H3 に置き換わり、`hypothesis_thread_id: codex:0199a001-0000-4000-8000-000000000001`
@@ -174,7 +174,7 @@ accepted と aporia の切り替えは **`MOCK_FIXTURES_DIR` を `responses` ↔
 ### A-1-DA-1 devils-advocate（新規）
 
 - 起動: 0-3
-- 依頼: `/codex-collab:devils-advocate --max-rounds 2 config.yaml をリクエスト毎に読む実装をやめ、起動時に 1 回読み込み SIGHUP で再読み込みする`
+- 依頼: `/agent-dialectics:devils-advocate --max-rounds 2 config.yaml をリクエスト毎に読む実装をやめ、起動時に 1 回読み込み SIGHUP で再読み込みする`
 - 観察:
   - [ ] `red-r1-1/inputs.json` が `["Context", "Debate Log/Round 1/Blue Team"]`
   - [ ] ラウンド 1 後の Snapshot / Unresolved Concerns に R1-C1〜R1-C3、`round: 1`
@@ -212,7 +212,7 @@ A-1-DA-1 と A-1-DA-2 の `red-r2-1/` で確認する。
 ### A-1-DL-1 dialectic-loop `--abduce`
 
 - 起動: 0-3
-- 依頼: `/codex-collab:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh" --max-rounds 2`（`$REPO` は展開した絶対パスで書く）
+- 依頼: `/agent-dialectics:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh" --max-rounds 2`（`$REPO` は展開した絶対パスで書く）
 - Phase 0b では **Candidate H3**（エラー終了の die() 集約）を選ぶ。induction の固定応答は H3 向けの測定値
 - 観察:
   - [ ] `abduction-1/` と `induction-r1-1/` が別ディレクトリ
@@ -233,7 +233,7 @@ A-1-DA-1 と A-1-DA-2 の `red-r2-1/` で確認する。
 ### A-1-CL-1 contradiction-lift: 開始 → mapped
 
 - 起動: 0-3
-- 依頼: `/codex-collab:contradiction-lift 設定値の検証を起動時に一括で行う（fail-fast）か、各機能の初回利用時に遅延して行う（lazy）か`
+- 依頼: `/agent-dialectics:contradiction-lift 設定値の検証を起動時に一括で行う（fail-fast）か、各機能の初回利用時に遅延して行う（lazy）か`
 - Decision Contract の確認では、`fixtures/states/contradiction-lift/20260916-120000-20001/state.md` の `## Decision Contract` の内容で合意する。Mapper は Codex で行うよう指示する
 - 観察:
   - [ ] Solver A（Claude subagent）と `solver-b-1/` が同じメッセージで並行に起動され、どちらかを読む前に両方を発行している
@@ -323,7 +323,7 @@ A-1-DA-1 と A-1-DA-2 の `red-r2-1/` で確認する。
 #### A-1-F-1 exit 2: companion 不在
 
 - 起動: `cd "$SCRATCH" && CODEX_COMPANION_PATH=/nonexistent CODEX_COMPANION_NO_CACHE_FALLBACK=1 claude --plugin-dir "$REPO"`
-- 依頼: `/codex-collab:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`
+- 依頼: `/agent-dialectics:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`
 - 期待:
   - [ ] `hypothesis-r1-1/error.log` に `CODEX_COMPANION_PATH not found`、`answer.md` なし
   - [ ] 会話記録で、exit 2 の完了通知の**直後・次のツール呼び出しより前**に「⚠️ Codex を使えないため（`run-codex-role.sh` 終了コード 2: …）、hypothesis-r1 以降を Claude だけで続けます」の警告テキストがある（最終レポートの注記だけでは不合格）
@@ -333,7 +333,7 @@ A-1-DA-1 と A-1-DA-2 の `red-r2-1/` で確認する。
 #### A-1-F-2 exit 2: setup が `codex.available:false`
 
 - 起動: 0-3 に `MOCK_SETUP_JSON='{"ready":false,"codex":{"available":false},"auth":{"loggedIn":true}}'` を追加
-- 依頼: `/codex-collab:devils-advocate --max-rounds 2 config.yaml をリクエスト毎に読む実装をやめ、起動時に 1 回読み込み SIGHUP で再読み込みする`
+- 依頼: `/agent-dialectics:devils-advocate --max-rounds 2 config.yaml をリクエスト毎に読む実装をやめ、起動時に 1 回読み込み SIGHUP で再読み込みする`
 - 期待:
   - [ ] 会話記録で、exit 2 の完了通知の**直後・次のツール呼び出し（サブエージェント起動を含む）より前**に「⚠️ Codex を使えないため（…）、red-r1 以降を Claude だけで続けます」の警告テキストがある（「Claude のサブエージェントに書かせています」だけでは不合格）
   - [ ] `red-r1-1/error.log` に `Codex not ready`、claude-only、`degraded: true`、`codex_call_failures` に `{role: red-r1, exit: 2, attempt: 1}`
@@ -342,7 +342,7 @@ A-1-DA-1 と A-1-DA-2 の `red-r2-1/` で確認する。
 #### A-1-F-3 exit 2 × `--abduce` → blocked_no_codex
 
 - 起動: A-1-F-2 と同じ（`MOCK_SETUP_JSON` 付き）
-- 依頼: `/codex-collab:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh"`（絶対パスで）
+- 依頼: `/agent-dialectics:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh"`（絶対パスで）
 - 期待:
   - [ ] `abduction-1/` が exit 2、state.md に `status: blocked_no_codex`、`codex_call_failures` に `{role: abduction, exit: 2, attempt: 1}`
   - [ ] claude-only に縮退しない（Claude が候補仮説を作らない）。retry / abort / default variant への切り替えをユーザーに尋ねて停止
@@ -400,7 +400,7 @@ for d in "$BASE"/*/*/; do echo "== $d"; node "$REPO/tests/acceptance/check-input
 
 ### A-2-SI strong-inference
 
-- 依頼: `/codex-collab:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`（題材は 0-1 で `$SCRATCH` にコピーした corpus）
+- 依頼: `/agent-dialectics:strong-inference rotate-logs.sh が "rotated N file(s)" を出さずに非0終了することがある`（題材は 0-1 で `$SCRATCH` にコピーした corpus）
 - 完走後:
 
   ```bash
@@ -413,7 +413,7 @@ for d in "$BASE"/*/*/; do echo "== $d"; node "$REPO/tests/acceptance/check-input
 
 ### A-2-CL contradiction-lift
 
-- 依頼: `/codex-collab:contradiction-lift 設定値の検証を起動時に一括で行う（fail-fast）か、各機能の初回利用時に遅延して行う（lazy）か`（Decision Contract は A-1-CL-1 と同じ内容で合意）
+- 依頼: `/agent-dialectics:contradiction-lift 設定値の検証を起動時に一括で行う（fail-fast）か、各機能の初回利用時に遅延して行う（lazy）か`（Decision Contract は A-1-CL-1 と同じ内容で合意）
 - 完走後:
 
   ```bash
@@ -429,7 +429,7 @@ for d in "$BASE"/*/*/; do echo "== $d"; node "$REPO/tests/acceptance/check-input
 
 ### A-2-DL dialectic-loop `--abduce`
 
-- 依頼: `/codex-collab:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh" --max-rounds 2`（絶対パスで）
+- 依頼: `/agent-dialectics:dialectic-loop --abduce --corpus "$REPO/tests/acceptance/fixtures/corpus/*.sh" --max-rounds 2`（絶対パスで）
 - 完走後:
 
   ```bash

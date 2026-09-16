@@ -686,13 +686,13 @@ If compacted during investigation:
 
 ```bash
 # Basic usage - investigate a problem
-/codex-collab:strong-inference API sometimes returns 500 errors
+/agent-dialectics:strong-inference API sometimes returns 500 errors
 
 # With mode selection
-/codex-collab:strong-inference --mode claude-only Why is the test flaky?
+/agent-dialectics:strong-inference --mode claude-only Why is the test flaky?
 
 # Japanese
-/codex-collab:strong-inference このバグの原因を調査して
+/agent-dialectics:strong-inference このバグの原因を調査して
 ```
 
 ## Notes

@@ -1,10 +1,16 @@
 # CLAUDE.md
 
-このファイルはClaude Codeがこのリポジトリで作業する際のガイダンスを提供します。
+このファイルは Claude Code がこのリポジトリで作業する際のガイダンスを提供します。
+
+## このリポジトリは何か
+
+`agent-dialectics` は、Claude と Codex に**別々の役を割り当てて同じ問題を考えさせる**ための 4手法プラグイン。strong-inference / devils-advocate / dialectic-loop / contradiction-lift の 4つで、それぞれ `skills/<method>/SKILL.md` だけで完結し、`/agent-dialectics:<method>` で起動する。
+
+実装や計画そのものの委譲は、このプラグインの役目ではない（公式 codex-plugin-cc を使う）。
 
 ## Codex Leaf Reviewer Mode
 
-Codex 側の `claude-collab` ラッパーから呼び出された場合、CLI の system prompt に `CLAUDE_COLLAB_CALLER=codex` 相当の leaf reviewer 指示が含まれます。
+Codex 側の `claude-collab` ラッパーから呼び出された場合、CLI の system prompt に `CLAUDE_COLLAB_CALLER=codex` 相当の leaf reviewer 指示が含まれる。
 
 その場合:
 
@@ -18,7 +24,7 @@ Codex 側の `claude-collab` ラッパーから呼び出された場合、CLI �
 
 ### バージョン更新
 
-PRを作成する前に、変更内容に応じて以下の **両方のファイル** のバージョンを更新すること。
+PR を作成する前に、変更内容に応じて以下の **両方のファイル** のバージョンを更新すること。
 
 - `.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
@@ -47,7 +53,7 @@ PRを作成する前に、変更内容に応じて以下の **両方のファイ
 
 ## 4手法スキルの Codex 呼び出し
 
-strong-inference / devils-advocate / dialectic-loop / contradiction-lift は `skills/<method>/SKILL.md` だけで完結し（`/codex-collab:<method>` で起動）、Codex 役は **`scripts/run-codex-role.sh` の 1 経路のみ**で呼ぶ。`codex exec` / `codex review` を直接叩く経路は v0.40.0 で廃止した。
+Codex 役は **`scripts/run-codex-role.sh` の 1 経路のみ**で呼ぶ。`codex exec` / `codex review` を直接叩く経路は v0.40.0 で廃止した。
 
 - 中身は公式 codex-plugin-cc companion の `node codex-companion.mjs task --fresh --json --prompt-file … --cwd …`。事前に `setup --json` で `ready`・`codex.available`・`auth.loggedIn` を確認
 - 成功条件: 終了コード 0 かつ JSON パース成功かつ `status === 0`（数値）かつ trim(rawOutput) 非空かつ touchedFiles 空。そのときだけ `answer.md`・`meta.json`・`DONE` を書く
@@ -69,7 +75,7 @@ strong-inference / devils-advocate / dialectic-loop / contradiction-lift は `sk
 
 ## プロジェクト構造
 
-- `skills/` - Claude Code のスキル（4手法。`/codex-collab:<method>` で起動）
+- `skills/` - Claude Code のスキル（4手法。`/agent-dialectics:<method>` で起動）
 - `codex-skills/` - Codex CLI のスキル（`claude-collab`）。Claude Code はここをスキルとして読み込まない
 - `scripts/` - `run-codex-role.sh`（Codex 役の唯一の呼び出し経路）と検査・テスト
 - `tests/acceptance/` - 受け入れ試験（偽 companion・固定応答・チェックリスト）
@@ -81,14 +87,23 @@ strong-inference / devils-advocate / dialectic-loop / contradiction-lift は `sk
 
 | 目的 | 使用するスキル |
 |------|---------------|
-| 未知の原因を究明（バグ/デバッグ） | `/codex-collab:strong-inference [problem]` |
-| 設計案を反証でストレステスト | `/codex-collab:devils-advocate [proposal]` |
-| 経験的主張をデータで検証・精緻化 | `/codex-collab:dialectic-loop [claim]` |
-| 競合する2解を平均でなく止揚 | `/codex-collab:contradiction-lift [question]` |
+| 未知の原因を究明（バグ/デバッグ） | `/agent-dialectics:strong-inference [problem]` |
+| 設計案を反証でストレステスト | `/agent-dialectics:devils-advocate [proposal]` |
+| 経験的主張をデータで検証・精緻化 | `/agent-dialectics:dialectic-loop [claim]` |
+| 競合する2解を平均でなく止揚 | `/agent-dialectics:contradiction-lift [question]` |
 
 > **strong-inference**=未知の原因、**devils-advocate**=1つの提案を外から叩く、**dialectic-loop**=主張×現物データ、**contradiction-lift**=独立した2解の食い違いを止揚。詳細な選択ガイドは README「スキルの使い分け」。
 
-実装や計画そのものの委譲は、このプラグインの役目ではない（公式 codex-plugin-cc を使う）。
+## 名前を変えるときの注意
+
+プラグイン名・マーケットプレイス名・スラッシュコマンドの前置き（`/agent-dialectics:`）は連動している。片方だけ変えるとインストールできなくなるので、次をまとめて更新すること。
+
+- `.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` の `name`
+- 各 `skills/*/SKILL.md` の使用例に出てくる `/agent-dialectics:<method>`
+- README のインストール手順（`/plugin marketplace add` の URL と `/plugin install <plugin>@<marketplace>`）
+- `scripts/lint-plugin.sh` の禁止参照語（旧名が復活しないよう、旧スラッシュコマンド名を追加する）
+
+旧名をあえて残す移行の注意書きは、`<!-- lint:legacy-history start -->` と `<!-- lint:legacy-history end -->` で囲めば禁止参照語の検査から外れる。
 
 ## テスト
 
@@ -103,4 +118,5 @@ bash scripts/lint-plugin.sh                                     # バージョ�
 - 外部依存は bash / node / python3（PyYAML）のみ。実 codex 呼び出しはない
 - CI（`.github/workflows/ci.yml`）でも同じスイートを実行している
 - 4手法スキルの受け入れ確認は `tests/acceptance/checklist.md`（ゲート A）
+- `tests/acceptance/records/` と `usage-report.md` は過去に実際に実行した記録なので、名前の一括置換の対象にしない
 - スクリプトを追加・変更した場合は対応するテストを追加すること
