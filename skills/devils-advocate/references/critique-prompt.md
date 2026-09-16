@@ -1,21 +1,36 @@
 # Red Team Critique Prompt Template
 
-This template is used to generate critique requests for Codex during Devil's Advocate debates.
+This template is used to generate critique requests for the Red Team (`red-r<N>`) during Devil's Advocate debates. The authoritative, fully expanded template is in `SKILL.md` (Red Team Phase); keep both in sync.
+
+Every round is a **fresh** call: nothing carries over between rounds except what the prompt re-injects from state.md.
 
 ## Template Variables
 
 | Variable | Description |
 |----------|-------------|
-| `${LANG_DIRECTIVE}` | Language directive (empty for English) |
+| `${ROUND_ROLE_HEADER}` | First line: `<!-- agent-dialectics-role: devils-advocate/red-r<N> -->` |
+| `${CONVERSATION_LANGUAGE}` | The language of the current conversation (the Red Team answers in it) |
 | `${PROPOSAL_DESC}` | The proposal being evaluated |
-| `${DEBATE_HISTORY}` | Previous rounds of debate |
+| `${CONTEXT}` | state.md `Context` section (excerpts with file paths / line numbers) |
+| `${SNAPSHOT}` | state.md `Snapshot` section (Confirmed Points / Unresolved Concerns / Rejected Ideas); Round 2+ only |
+| `${PREVIOUS_RED}` | state.md `Debate Log/Round <N-1>/Red Team`; Round 2+ only |
+| `${BLUE_POSITION}` | state.md `Debate Log/Round <N>/Blue Team` |
 | `${CURRENT_ROUND}` | Current round number |
 | `${MAX_ROUNDS}` | Total number of rounds |
 
 ## Prompt Template
 
 ```markdown
-${LANG_DIRECTIVE}You are the Red Team (Devil's Advocate) in a structured debate.
+${ROUND_ROLE_HEADER}
+Respond in ${CONVERSATION_LANGUAGE}.
+
+You are the Red Team (Devil's Advocate) in a structured debate.
+
+## Constraints
+
+- Do not use web search.
+- Do not explore or read the repository. All facts you may rely on are in this prompt. If a needed fact is missing, say so as an open question instead of assuming.
+- Do not modify any files.
 
 ## Your Role
 
@@ -31,24 +46,43 @@ Focus on finding:
 
 ${PROPOSAL_DESC}
 
-## Debate History
+## Context
 
-${DEBATE_HISTORY}
+${CONTEXT}
+
+## Snapshot (Round 2+ only)
+
+${SNAPSHOT}
+
+## Previous Round Red Team Critique (Round 2+ only)
+
+${PREVIOUS_RED}
+
+## Blue Team Position (Round ${CURRENT_ROUND})
+
+${BLUE_POSITION}
 
 ## Task
 
 Provide a structured critique of the Blue Team's position.
 
-**Round ${CURRENT_ROUND} Critique Requirements:**
+**Round ${CURRENT_ROUND} of ${MAX_ROUNDS} Critique Requirements:**
 [Dynamic based on round number - see below]
+
+Label every new concern with an ID `R${CURRENT_ROUND}-C<m>` (m = 1, 2, ...).
 
 ## Response Format
 
 \`\`\`markdown
 ### Red Team Critique (Round ${CURRENT_ROUND})
 
+#### Prior Findings Status   (Round 2+ only)
+| ID | Status | Reason |
+|----|--------|--------|
+| R<k>-C<m> | Resolved / Partially Resolved / Unresolved / Withdrawn | ... |
+
 #### Key Concerns
-1. **[Severity: Critical/High/Medium/Low]** [Concern title]
+1. **R${CURRENT_ROUND}-C1 [Severity: Critical/High/Medium/Low]** [Concern title]
    - Issue: [Description]
    - Impact: [Potential consequences]
    - Suggestion: [Recommended mitigation]
@@ -94,6 +128,19 @@ status: stop
 - List any conditions for approval (if CONDITIONAL)
 - Summarize key risks that remain
 ```
+
+### Round 2+ (in addition to the above)
+
+The Red Team has no memory of earlier rounds; the Snapshot is its only record of prior findings.
+
+```
+- For EVERY concern ID listed under "Unresolved Concerns" in the Snapshot, state its resolution
+  status in "Prior Findings Status": Resolved / Partially Resolved / Unresolved / Withdrawn,
+  with a one-line reason referring to the Blue Team's response. Do not omit any ID.
+- Do not re-raise a Resolved concern as a new concern.
+```
+
+The orchestrator's acceptance gate rejects a Round 2+ answer that omits any of those IDs.
 
 ## Verdict Section (Final Round Only)
 

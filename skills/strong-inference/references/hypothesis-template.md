@@ -1,13 +1,16 @@
 # Hypothesis Generation Template
 
-This template is used when requesting hypothesis generation from Codex in `codex` mode.
+This template is used for the Codex `hypothesis` role in `codex` mode (written to `<state-dir>/hypothesis-r<round>-<attempt>/prompt.md`; every call is fresh and self-contained).
 
 ## Prompt Template
 
 ```markdown
+<!-- agent-dialectics-role: strong-inference/hypothesis-r{{ROUND}} -->
+{{LANGUAGE_DIRECTIVE}}
+
 You are helping investigate a problem using Strong Inference methodology.
 
-**IMPORTANT**: If you reference any files, always re-read them from disk even if you have read them before in this session. Ignore any cached content from earlier in this conversation.
+**IMPORTANT**: Do not use web search and do not explore the repository. Base your hypotheses only on the problem, context, and evidence provided in this prompt.
 
 ## Problem
 
@@ -25,6 +28,8 @@ You are helping investigate a problem using Strong Inference methodology.
 
 ### Recent Changes
 {{RECENT_CHANGES}}
+
+{{PREVIOUS_ROUND}}
 
 ## Strong Inference Principles
 
@@ -155,7 +160,7 @@ status: stop
 ## Usage Notes
 
 1. **Replace placeholders** with actual problem context before sending to Codex
-2. **Include all relevant context** - Codex cannot access files directly
+2. **Include all relevant context** - Codex is not asked to read files; embed the excerpts and line numbers Claude already read
 3. **Keep hypotheses focused** - 2-4 is the ideal range
 4. **Prioritization matters** - Test highest-priority hypotheses first
 
@@ -168,3 +173,6 @@ status: stop
 | `{{ERROR_DETAILS}}` | Error messages, stack traces | Step 2 |
 | `{{RELATED_FILES}}` | List of relevant files with descriptions | Step 2 |
 | `{{RECENT_CHANGES}}` | Git history or change summary | Step 2 |
+| `{{ROUND}}` | `hypothesis_round` from state.md | Step 3 |
+| `{{LANGUAGE_DIRECTIVE}}` | Instruction to answer in the language of the user's conversation | Step 3 |
+| `{{PREVIOUS_ROUND}}` | Round 1: empty. Round 2+: `## Eliminated Hypotheses` (state.md `## Hypotheses`) + `## Verification Log` (state.md table), with "new hypotheses must be consistent with this evidence and must not restate eliminated ones" | Steps 5-6 |
