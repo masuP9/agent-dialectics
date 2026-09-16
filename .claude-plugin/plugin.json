@@ -1,7 +1,7 @@
 {
-  "name": "codex-collab",
-  "version": "0.40.0",
-  "description": "Claude Code と OpenAI Codex CLI の協調タスク実行プラグイン",
+  "name": "agent-dialectics",
+  "version": "0.41.0",
+  "description": "Claude と Codex に別々の役を割り当てて考えさせる、4つの思考手法プラグイン",
   "author": {
     "name": "masuP9"
   }

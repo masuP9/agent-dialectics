@@ -1,6 +1,6 @@
 ---
 name: devils-advocate
-description: 'This skill should be used when the user wants to "stress-test a design", "challenge an idea", "red team a proposal", "get critical feedback on a design", "validate a design", "adversarial architecture review", "risk assessment", "設計を検証して", "反論をもらいたい", "設計を批判的にレビュー", "デビルズアドボケート", "ストレステスト", "弱点を指摘して", "穴を見つけて", "この設計で良いか", "リスク評価", "設計のアーキテクチャレビュー", or mentions structured adversarial review of a proposal or design. NOTE: Use this for validating PROPOSALS and DESIGNS through adversarial debate, NOT for generic code review, PR review, or normal review requests (use /codex:review or /codex:adversarial-review for those). Also NOT for investigating unknown bugs (use /codex-collab:strong-inference for that).'
+description: 'This skill should be used when the user wants to "stress-test a design", "challenge an idea", "red team a proposal", "get critical feedback on a design", "validate a design", "adversarial architecture review", "risk assessment", "設計を検証して", "反論をもらいたい", "設計を批判的にレビュー", "デビルズアドボケート", "ストレステスト", "弱点を指摘して", "穴を見つけて", "この設計で良いか", "リスク評価", "設計のアーキテクチャレビュー", or mentions structured adversarial review of a proposal or design. NOTE: Use this for validating PROPOSALS and DESIGNS through adversarial debate, NOT for generic code review, PR review, or normal review requests (use /codex:review or /codex:adversarial-review for those). Also NOT for investigating unknown bugs (use /agent-dialectics:strong-inference for that).'
 argument-hint: '[proposal] [--mode codex|claude-only] [--max-rounds N]'
 ---
 
@@ -763,16 +763,16 @@ Recommendations:
 
 ```
 # Basic usage - stress-test a design
-/codex-collab:devils-advocate Add a caching layer to reduce database load
+/agent-dialectics:devils-advocate Add a caching layer to reduce database load
 
 # With mode selection
-/codex-collab:devils-advocate --mode claude-only Should we migrate to microservices?
+/agent-dialectics:devils-advocate --mode claude-only Should we migrate to microservices?
 
 # With custom rounds
-/codex-collab:devils-advocate --max-rounds 5 This authentication redesign
+/agent-dialectics:devils-advocate --max-rounds 5 This authentication redesign
 
 # Japanese
-/codex-collab:devils-advocate この認証設計を批判的にレビューして
+/agent-dialectics:devils-advocate この認証設計を批判的にレビューして
 ```
 
 ## Notes
