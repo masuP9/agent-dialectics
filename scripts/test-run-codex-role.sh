@@ -2,6 +2,10 @@
 # Tests for scripts/run-codex-role.sh using tests/acceptance/mock-companion.mjs.
 # Pure bash + node; no real Codex call.
 
+# Assertions are passed to check() as single-quoted strings and expanded by eval there,
+# and the variables they read (RC, OUT, FIRST_RC, CLAIM_*) look unused to shellcheck.
+# shellcheck disable=SC2016,SC2034
+
 set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
