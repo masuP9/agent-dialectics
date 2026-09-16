@@ -1,20 +1,19 @@
 # codex-collab
 
-Claude Code と OpenAI Codex CLI を協調させてタスクを実行するプラグイン。
+Claude Code と OpenAI Codex に**別々のモデルとして同じ問題を考えさせる**ための、4つの思考手法プラグイン。
 
-Claude Code から Codex を呼び出す既存フローに加え、Codex から Claude Code を read-only の相談役として呼び出す `claude-collab` スキルも提供します。
+Claude Code 側は 4手法スキル（strong-inference / devils-advocate / dialectic-loop / contradiction-lift）を提供し、Codex 側には Claude Code を read-only の相談役として呼び出す `claude-collab` スキルを提供します。
 
 ## 概要
 
-このプラグインは、Claude Code と Codex の強みを組み合わせた協調ワークフローを提供します。Codex とは `codex` CLI（`codex exec --json` / `codex exec resume` / `codex review`）で通信し、スレッドを再開することで multi-turn の文脈を保持します。
+同じモデルに考え直させても、同じ偏りが返ってきます。この 4手法は、Claude と Codex という**独立した 2つのモデル**に別々の役を割り当てて、片方だけでは出てこない指摘・反証・食い違いを取り出すためのものです。
 
-**Codex-Leads（従来のレビュー型）:**
-- **Codex**: 計画作成・コードレビュー
-- **Claude Code**: 実装
-
-**Claude-Leads（新規）:**
-- **Claude Code**: 深い分析・計画作成・レビュー
-- **Codex**: 高速実装（workspace-write sandbox）
+| 手法 | 何をするか |
+|------|-----------|
+| strong-inference | 競合する仮説を立て、排除実験で未知の原因を絞り込む |
+| devils-advocate | 1つの提案に反対役を当て、反証でストレステストする |
+| dialectic-loop | 経験的な主張を現物データで確かめ、仮説を更新する |
+| contradiction-lift | 独立に解いた 2つの答えの食い違いを、平均でなく一段上で統合する |
 
 ## インストール
 
@@ -34,40 +33,43 @@ Codex のスキルディレクトリへシンボリックリンクを作成し�
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/skills/claude-collab" "${CODEX_HOME:-$HOME/.codex}/skills/claude-collab"
+ln -sfn "$(pwd)/codex-skills/claude-collab" "${CODEX_HOME:-$HOME/.codex}/skills/claude-collab"
 ```
+
+`claude-collab` は Codex 専用なので `codex-skills/` に置いています。Claude Code はこのディレクトリをスキルとして読み込まないため、Claude 側のスキル一覧には出てきません。
 
 Codex で「Claude と一緒に実装して」「Claude にレビューしてもらって」のように依頼すると、`claude-collab` スキルが Claude Code CLI を read-only の相談役として呼び出します。
 
 ## 前提条件
 
-- OpenAI Codex CLI (`codex`) がインストールされていること
+- OpenAI Codex CLI (`codex`) がインストール済みで、ログイン済みであること
   - **検証済み: codex-cli 0.154.0 / 対応対象: 0.154.0 以上**（それ未満は保証対象外）
-- `codex exec` が動作すること（`echo "test" | codex exec -s read-only -`）
-- 環境変数 `OPENAI_API_KEY` が設定されていること
+- 公式プラグイン [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) がインストール済みであること（4手法の Codex 役はこの companion を経由して呼びます）
 - Codex から `claude-collab` を使う場合は Claude Code CLI (`claude`) がインストール済みであること
 
-### 以前のバージョンから移行する場合（v0.37 以前）
+### 以前のバージョンから移行する場合（v0.39 以前）
 
-`codex mcp-server` は codex-cli 0.154.0 で削除され、本プラグインも v0.38.0 で MCP 経路を廃止しました。
-
-- MCP 設定（例: `~/.mcp.json` や `~/.claude.json` の `mcpServers.codex`）に `codex mcp-server` を登録している場合は、そのエントリを削除してください（残っていると Claude Code 起動時に接続エラーになります）。
-- `tmp/codex-session-*.json` に残っている旧形式（`mode: mcp` / `bash`）のセッション状態は、読み込み時に自動で新形式へ移行されます（旧 thread id は破棄され、新しいスレッドで再開します）。
+<!-- lint:legacy-history start -->
+- v0.38.0 で `codex mcp-server` 経路を廃止しました。MCP 設定（例: `~/.mcp.json` や `~/.claude.json` の `mcpServers.codex`）に `codex mcp-server` が残っていると Claude Code 起動時に接続エラーになるので、そのエントリを削除してください。
+- v0.40.0 で `/codex-collab`・`/collab-planning` コマンドと共通ヘルパー・PreToolUse フックを削除しました。実装や計画の委譲は公式 codex-plugin-cc をお使いください。
+- v0.40.0 で `.claude/codex-collab.local.md` による設定を廃止しました。応答の言語は各スキルがプロンプトに直接書きます。
+- `claude-collab` の置き場所が `skills/` から `codex-skills/` へ変わりました。Codex 側のシンボリックリンクを上記のコマンドで張り直してください。
+<!-- lint:legacy-history end -->
 
 ## アーキテクチャ
 
-Codex との通信は `codex` CLI のみで行います。
+4手法スキル（strong-inference / devils-advocate / dialectic-loop / contradiction-lift）から Codex を呼ぶ経路は `scripts/run-codex-role.sh` の 1 本だけです。中身は公式 [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) の companion で、毎回新しいスレッド・読み取り専用で実行します。
 
 ```
-新規:  Claude Code → codex exec -s <sandbox> --json -o out.md -          → thread.started の thread_id を保存
-継続:  Claude Code → codex exec -s <sandbox> resume <thread_id> --json -o out.md -
-レビュー: Claude Code → codex review --uncommitted（失敗時は計画スレッドを resume）
+Claude Code → scripts/run-codex-role.sh → codex-companion.mjs task --fresh --json → Codex
 ```
 
-- **ステートフル**: `codex_run_exec_session()` が thread id をセッション状態（`tmp/codex-session-{task_id}.json`）に保存し、次のターンを `codex exec resume` で継続します（multi-turn exchange で履歴再構築不要）。
-- **応答本文**: `-o` の出力ファイルのみを正とします。イベントログ（`*.jsonl`）と stderr（`*.stderr.log`）は診断用に隣へ保存されます。
-- **1 スレッド = 1 sandbox**: 読み取り専用の相談と workspace-write の実装は別スレッドにします。
-- **安全な失敗処理**: 戻り値で分類し、「再開対象スレッドが存在しない（ターン未開始）」場合だけ自動で 1 回再構築します。実行結果が不明な失敗（ファイル変更済みの可能性がある場合を含む）は自動再実行せず、ユーザーに確認します。
+- **毎回新しいスレッド**: 継続（resume）は使いません。反復するときは、前回までの要約と必要な抜粋を貼った自己完結のプロンプトで投げ直します。
+- **書き込みなし**: `--write` は受け付けません。ファイルが変更されていたら失敗として扱います。
+- **成功の条件**: 終了コード 0 かつ JSON が読めて `status` が 0 かつ回答が空でないかつファイル変更なし。そのときだけ `answer.md` と `meta.json` を書きます。
+- **作業ファイルは対象リポジトリの外**: `${XDG_STATE_HOME:-~/.local/state}/agent-dialectics/<repo-slug>/<method>/<task-id>/`
+
+Codex から Claude を呼ぶ `claude-collab` スキルは `codex-skills/claude-collab/` にあり、Codex CLI 側のスキルとして動きます。
 
 ## プロジェクト構造
 
@@ -76,116 +78,28 @@ codex-collab/
 ├── .claude-plugin/
 │   ├── plugin.json            # プラグインメタデータ
 │   └── marketplace.json       # マーケットプレイス公開用メタデータ
-├── commands/
-│   ├── codex-collab.md        # /codex-collab コマンド
-│   └── collab-planning.md     # /collab-planning コマンド
-├── hooks/
-│   ├── enforce-skill-usage.sh # PreToolUse フック（スキル経由強制）
-│   └── enforce-skill-usage.md # フック設定ドキュメント
 ├── scripts/
-│   ├── codex-helpers.sh       # 共通ヘルパー関数
-│   ├── test-helpers.sh        # ヘルパーのテストスイート
 │   ├── run-codex-role.sh      # 4手法スキルの Codex 役呼び出し（公式 companion 経由）
-│   └── test-run-codex-role.sh # run-codex-role.sh のテスト
-├── docs/
-│   └── bash-usage.md          # Bash 使用ルール詳細
-└── skills/
-    ├── codex-collab/
-    │   └── references/        # プロトコル定義・テンプレート
-    ├── claude-collab/
-    │   ├── scripts/           # Codex から Claude を呼ぶ read-only ヘルパーとテスト
-    │   └── references/        # Claude 相談・レビュー用テンプレート
-    ├── collab-planning/
-    │   └── references/        # 計画テンプレート・レビュー基準
-    ├── strong-inference/
-    │   └── references/        # 仮説テンプレート
-    ├── devils-advocate/
-    │   └── references/        # 評価基準・批評テンプレート
-    ├── dialectic-loop/
-    │   └── references/        # 予測・帰納検証・アブダクションテンプレート
-    └── contradiction-lift/
-        └── references/        # 封緘解・矛盾マップ・止揚監査テンプレート
+│   ├── test-run-codex-role.sh # run-codex-role.sh のテスト
+│   └── lint-plugin.sh         # プラグイン一貫性の検査
+├── tests/
+│   └── acceptance/            # 受け入れ試験（偽 companion・固定応答・チェックリスト）
+├── skills/                    # Claude Code のスキル（4手法）
+│   ├── strong-inference/
+│   │   └── references/        # 仮説テンプレート
+│   ├── devils-advocate/
+│   │   └── references/        # 評価基準・批評テンプレート
+│   ├── dialectic-loop/
+│   │   └── references/        # 予測・帰納検証・アブダクションテンプレート
+│   └── contradiction-lift/
+│       └── references/        # 封緘解・矛盾マップ・止揚監査テンプレート
+└── codex-skills/              # Codex CLI のスキル（Claude Code は読み込まない）
+    └── claude-collab/
+        ├── scripts/           # Codex から Claude を呼ぶ read-only ヘルパーとテスト
+        └── references/        # Claude 相談・レビュー用テンプレート
 ```
-
-### ヘルパースクリプト
-
-`scripts/codex-helpers.sh` には、コマンド間で共有される関数が定義されています:
-
-**コア関数（Codex 実行）:**
-- `codex_run_exec_session()` - `codex exec --json` / `codex exec resume` のラッパー（thread id を返す。戻り値 0/2/3/4/5 で失敗を分類）
-- `codex_extract_thread_id()` - JSONL の `thread.started` イベントから thread id を抽出
-- `codex_run_exec()` - codex exec のステートレス実行ラッパー（stdin パイプ、ANSI 除去、出力保存、exit code ハンドリング）
-- `codex_build_exec_command()` - codex exec コマンド文字列の構築
-- `codex_write_prompt()` - プロンプトを一時ファイルに書き出し
-- `codex_strip_ansi()` - ANSI エスケープコード除去
-
-**レビュー解析:**
-- `codex_run_review()` - codex review --uncommitted のラッパー（sandbox_mode 指定、ANSI 除去、出力保存、モデル retry、exit code ハンドリング）
-- `codex_infer_verdict()` - レビューレスポンスから verdict を推定（メタデータ → [P1]-[P4] → findings なし pass）
-- `codex_extract_review_findings()` - レビューレスポンスから findings を抽出
-
-**セッション状態管理（exec スレッド用）:**
-- `codex_save_session_state()` - セッション状態を JSON ファイルに保存（task_id 単位で分離）
-- `codex_load_session_state()` - セッション状態を読み込み（MODE, THREAD_ID 等をグローバル変数にセット。旧 mcp/bash 形式は自動移行）
-- `codex_save_thread()` / `codex_save_thread_session()` - 名前付きスレッドを保存（claude-leads の Thread B/C 用、`uuid|sandbox` 形式）
-- `codex_load_session_thread()` - メインスレッドを指定 sandbox で再開できる場合のみ UUID を返す（0 / 1 / 2）
-- `codex_load_thread()` / `codex_load_thread_sandbox()` - 名前付きスレッドの UUID / sandbox を読み込み
-- `codex_sanitize_task_id()` - task_id のファイル名安全化（英数字・ハイフン・アンダースコアのみ）
-- `codex_json_escape()` - JSON 値のエスケープ（引用符・バックスラッシュ・改行）
-- `codex_diff_tier()` - diff のサイズに応じてティア判定（small/medium/large）
-
-**メタデータ抽出:**
-- `codex_extract_metadata()` - 応答末尾のYAMLブロックを抽出
-- `codex_get_field()` - メタデータフィールド取得
-- `codex_get_status()` - status フィールド取得（continue/stop）
-- `codex_get_verdict()` - verdict フィールド取得（pass/conditional/fail）
-
-**ユーティリティ関数:**
-- `codex_ensure_tmp_dir()` - 一時ディレクトリ管理
-- `codex_tmp_path()` - 一時ディレクトリ内のファイルパス取得
-- `codex_hash_content()` - クロスプラットフォームハッシュ計算
-- `codex_generate_signal()` - ユニークID生成
-- `codex_get_language_directive()` - 言語指示生成（多言語対応）
-- `codex_debug()` - デバッグログ出力
-
-各コマンドは自動的にヘルパーをsourceします。
 
 ## 使い方
-
-### `/codex-collab` コマンド
-
-協調ワークフローを開始します。計画・実装・レビューの完全サイクル。
-
-```
-/codex-collab 新しい認証機能を実装して
-```
-
-**特徴:**
-- `codex exec` + `codex exec resume` でスレッドを継続し、ステートフルに Codex と対話
-- 再開対象スレッドが消えている場合のみ、保存済みの入力から新しいスレッドで 1 回だけ再構築
-- Codex CLI が未インストールの場合は Claude-only モードにフォールバック
-
-### `/collab-planning` コマンド
-
-Codex と協調して実装計画を作成します。**計画のみ — 実装は行いません。**
-
-```
-# 基本的な使い方
-/collab-planning ユーザーリストAPIにページネーションを追加したい
-
-# イテレーション数指定
-/collab-planning --max-iterations 5 認証モジュールのリファクタリング計画
-
-# モード指定
-/collab-planning --mode claude-only データベース移行の計画を立てたい
-```
-
-**特徴:**
-- Claude がコンテキスト収集・ドラフト作成、Codex がレビュー・改善提案
-- 固定テンプレート出力（目的/スコープ外/WBS/実装手順/リスク/検証/完了条件）
-- 品質評価に基づく自動イテレーション（good → 完了、needs-improvement → 改善、major-revision → ユーザー確認）
-- 各ラウンド末に要約スナップショット（決定事項/未解決/却下案）で文脈劣化を防止
-- 計画ログを `tmp/collab-planning/` に保存
 
 ### 4手法スキル共通
 
@@ -267,11 +181,6 @@ Claude と Codex に**同じ問いを独立に解かせ**、答えの食い違�
 ### スキルの自動起動
 
 以下のようなリクエストで自動的にスキルが有効になります:
-- 「Codexと協調してタスクを実行したい」（codex-collabスキル）
-- 「Codexにレビューを依頼して」（codex-collabスキル）
-- 「Codexに計画を作成させたい」（codex-collabスキル）
-- 「計画を立てたい」「実装計画を作成して」（collab-planningスキル）
-- 「Codexと計画を練りたい」「plan with Codex」（collab-planningスキル）
 - 「このバグの原因を調査して」（Strong Inferenceスキル）
 - 「仮説を立てて検証して」（Strong Inferenceスキル）
 - 「この設計を批判的にレビューして」（Devil's Advocateスキル）
@@ -283,236 +192,36 @@ Claude と Codex に**同じ問いを独立に解かせ**、答えの食い違�
 
 ### スキルの使い分け
 
-スキルは目的が異なります。**多くの場合、スキル名を覚える必要はありません**——やりたいことを自然文で書けば、内容から適切なスキルが自動的に起動します（上記「スキルの自動起動」）。能動的に選びたいとき・迷うときは、以下のガイドを参照してください。
-
-スキルは大きく **実行系**（実装/計画）と **分析系**（思考フレームワーク）に分かれます。
-
-#### 実行系
-
-| スキル | 目的 |
-|--------|------|
-| `/codex-collab` | 計画〜実装〜レビューの完全サイクル（中小タスク、PR レビュー） |
-| `/collab-planning` | 計画のみ（成果物は計画文書、実装は起動しない） |
-| `claude-collab` | Codex 側から Claude を read-only の相談役として呼ぶ（Codex で使用） |
-
-#### 分析系（思考フレームワーク）— ここが一番迷いやすい
+**多くの場合、スキル名を覚える必要はありません**——やりたいことを自然文で書けば、内容から適切なスキルが自動的に起動します（上記「スキルの自動起動」）。能動的に選びたいとき・迷うときは、以下のガイドを参照してください。
 
 | スキル | いつ使うか | 矛盾の出所 | 出力 |
 |--------|-----------|-----------|------|
-| `/strong-inference` | **未知の原因**を究明（バグ/デバッグ） | 競合仮説 | 根本原因＋証拠 |
-| `/devils-advocate` | **1つの提案**を反証でストレステスト | 外から割り当てた反対役 | APPROVE/CONDITIONAL/REJECT |
-| `/dialectic-loop` | **経験的主張**を現物データで検証・精緻化 | 予測 vs 現物の証拠 | 更新された仮説 H′＋confidence |
-| `/contradiction-lift` | **独立した2つの解**の食い違いを止揚 | 独立解から自然に立ち上がる | 選択機構 or 正直なアポリア |
+| `/codex-collab:strong-inference` | **未知の原因**を究明（バグ/デバッグ） | 競合仮説 | 根本原因＋証拠 |
+| `/codex-collab:devils-advocate` | **1つの提案**を反証でストレステスト | 外から割り当てた反対役 | APPROVE/CONDITIONAL/REJECT |
+| `/codex-collab:dialectic-loop` | **経験的主張**を現物データで検証・精緻化 | 予測 vs 現物の証拠 | 更新された仮説 H′＋confidence |
+| `/codex-collab:contradiction-lift` | **独立した2つの解**の食い違いを止揚 | 独立解から自然に立ち上がる | 選択機構 or 正直なアポリア |
+
+Codex 側から Claude を read-only の相談役として呼びたいときは、Codex で `claude-collab` スキルを使います。
 
 #### 判断が難しいケース
 
-**「計画を立てたい」と言われたら？**
-- 計画のみが目的 → `/collab-planning`
-- 計画 + 実装まで → `/codex-collab`
-
 **「検証/レビューしたい」と言われたら？**
-- 実装済みコード → `/codex-collab`（品質チェック）
-- 原因不明の問題（なぜ動かない） → `/strong-inference`（実験で仮説を排除）
-- 1つの設計案の妥当性 → `/devils-advocate`（反論で弱点を発見）
-- 主張やトレンドが現物データと合うか → `/dialectic-loop`（演繹→帰納→仲裁で精緻化）
-- 実装計画 → `/collab-planning`（Codex にレビューしてもらう）
+- 原因不明の問題（なぜ動かない） → `strong-inference`（実験で仮説を排除）
+- 1つの設計案の妥当性 → `devils-advocate`（反論で弱点を発見）
+- 主張やトレンドが現物データと合うか → `dialectic-loop`（演繹→帰納→仲裁で精緻化）
 
 **「2つの案で迷っている」と言われたら？**
-- どちらか1案を叩いて弱点を見たい → `/devils-advocate`
-- 両方が良くて食い違う、平均でなく一段上で統合したい → `/contradiction-lift`
+- どちらか1案を叩いて弱点を見たい → `devils-advocate`
+- 両方が良くて食い違う、平均でなく一段上で統合したい → `contradiction-lift`
 
 #### 簡単な見分け方
 
 ```
-「計画だけ作りたい」              → /collab-planning
-「実装して」「実装をチェック」      → /codex-collab
-「なぜ？」「原因は？」（未知の原因） → /strong-inference
-「これで良いか？」「弱点は？」      → /devils-advocate
-「主張をデータで検証/精緻化」      → /dialectic-loop
-「2つの良い案を平均でなく止揚」    → /contradiction-lift
+「なぜ？」「原因は？」（未知の原因） → strong-inference
+「これで良いか？」「弱点は？」      → devils-advocate
+「主張をデータで検証/精緻化」      → dialectic-loop
+「2つの良い案を平均でなく止揚」    → contradiction-lift
 ```
-
-## 設定
-
-プロジェクト固有の設定は `.claude/codex-collab.local.md` に記述できます。
-
-```markdown
----
-sandbox: read-only
-language: ja
----
-
-# プロジェクト固有の指示
-
-このプロジェクトでは TypeScript を使用しています。
-```
-
-サンプルは [`.claude/codex-collab.local.md.example`](.claude/codex-collab.local.md.example) を参照してください。
-
-### 設定オプション
-
-| オプション | デフォルト | 説明 |
-|-----------|-----------|------|
-| `workflow` | `auto` | ワークフロー選択 (auto, codex-leads, claude-leads) |
-| `model` | (Codexデフォルト) | 使用するモデル (gpt-5.6-sol 等)。省略時は `~/.codex/config.toml` の設定を使用 |
-| `sandbox` | `read-only` | サンドボックスモード (read-only, workspace-write, danger-full-access)。codex-leads用 |
-| `language` | `en` | レスポンス言語 (en, ja 等) |
-| `exchange.enabled` | `true` | Planning exchangeのグローバルキルスイッチ (codex-leads) |
-| `exchange.max_iterations` | `3` | Planning exchangeの最大ラウンド数 |
-| `exchange.user_confirm` | `on_important` | ユーザー確認タイミング (never, always, on_important) |
-| `exchange.history_mode` | `summarize` | 履歴管理方式: full=全履歴保持, summarize=最新2ラウンドのみ全文。**再構築専用**（通常は `codex exec resume` のスレッドが履歴を保持。再開対象スレッドが消えた場合のみ使用） |
-| `review.enabled` | `true` | Review iterationの有効化 (codex-leads) |
-| `review.max_iterations` | `5` | Review iterationの最大ラウンド数（ゴールが明確なので多め） |
-| `review.max_verdict_retries` | `3` | verdict が取れない/不明瞭な場合のリトライ回数 |
-| `review.user_confirm` | `never` | レビュー時は自動でイテレーション |
-| `claude_leads.sandbox` | `workspace-write` | Codex実装用サンドボックス (claude-leads) |
-| `claude_leads.consult_codex` | `true` | 計画の壁打ちフェーズ有効化 (claude-leads) |
-| `claude_leads.safety_checkpoint` | `stash` | 実装前チェックポイント (stash, wip-commit, none) |
-| `claude_leads.review.max_iterations` | `3` | Claudeレビュー修正ループの上限 (claude-leads) |
-| `collab_planning.max_iterations` | `3` | 計画レビュー改善サイクルの上限 |
-| `collab_planning.user_confirm` | `on_important` | ユーザー確認タイミング (never, always, on_important) |
-| `codex.wait_timeout` | `180` | Codex 1 ターンの最大実行時間（秒、max 600 = Bash tool の上限） |
-
-### 設定の優先順位
-
-```
-コマンド引数 > プロジェクト設定 > グローバル設定 > 安全デフォルト
-```
-
-## ワークフロー
-
-### Codex-Leads（従来）
-
-Codex が計画・レビュー、Claude が実装するワークフロー。推論に優れたモデルに最適。
-
-```
-1. ユーザー: /codex-collab "機能Xを実装して"
-2. Claude Code: タスク分析・Codex向けプロンプト作成
-3. Codex: 計画作成
-4. Claude Code: 計画確認・実装
-5. Codex: レビュー（Pass/Fail/Conditional）
-6. Claude Code: 修正（必要に応じて）・完了報告
-```
-
-### Claude-Leads（新規）
-
-Claude が計画・レビュー、Codex が実装するワークフロー。高速実行向きの軽量モデルに最適。
-
-```
-1. ユーザー: /codex-collab "機能Xを実装して"
-2. Claude Code: 深いコードベース分析
-3. Claude Code: 詳細な実装計画を作成
-4. (optional) Codex: 計画をレビュー（壁打ち）
-5. ユーザー: 計画を承認
-6. Safety Checkpoint: git stash で状態保存
-7. Codex: 計画に従い実装（workspace-write sandbox）
-8. Claude Code: 変更をレビュー（git diff + Read）
-9. [問題あり?] → Codex修正 → Claude再レビュー
-10. 完了報告
-```
-
-### ワークフロー自動選択
-
-`workflow: auto`（デフォルト）では、常に **codex-leads** を選択します。`claude-leads` は `workflow: claude-leads` を明示的に指定した場合のみ有効です。
-
-### Claude-Leads の責務境界
-
-| 役割 | 責務 |
-|------|------|
-| **Claude** | 品質ゲート: 分析・計画・レビュー・承認 |
-| **Codex** | 実行エンジン: 計画に従った正確な実装 |
-| **ユーザー** | 最終承認: 計画承認と最終判断 |
-
-> **安全メカニズム**: Safety Checkpoint（git stash）+ 計画外ファイル変更の自動検出 + Claude レビュー
-
-## 軽量メタデータプロトコル
-
-Claude Code と Codex CLI 間の議論をサポートする軽量なメタデータ形式を採用しています。
-
-### 設計思想
-
-- **本文は自然言語のまま**: LLM の表現力を制限しない
-- **メタデータは末尾に付加**: 応答の最後に YAML ブロックとして追加
-- **フォールバック可能**: メタデータがなくても本文は読める
-
-### メタデータ形式
-
-応答の末尾に `---` で囲まれた YAML ブロックを付加：
-
-```markdown
-（自然言語の応答本文）
-
-...議論や説明...
-
----
-status: stop
-verdict: conditional
-open_questions:
-  - 認証方式の選択
-findings:
-  - severity: medium
-    message: 入力バリデーションが不足
----
-```
-
-### フィールド一覧
-
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `status` | enum | `continue` / `stop` - 議論を続けるか終了するか |
-| `verdict` | enum | `pass` / `conditional` / `fail` - レビュー判定 |
-| `open_questions` | list | 未解決の質問 |
-| `decisions` | list | 合意した決定事項 |
-| `findings` | list | 発見事項（severity, message） |
-
-### 使用例
-
-**レビュー応答:**
-
-```markdown
-コードを確認しました。全体的に良い実装ですが、改善点があります。
-
-1. `validate_input()` で空文字列のチェックが抜けています
-2. エラーメッセージがハードコードされています
-
----
-status: stop
-verdict: conditional
-findings:
-  - severity: medium
-    message: validate_input() で空文字列チェックが不足
-  - severity: low
-    message: エラーメッセージのハードコード
----
-```
-
-**議論応答（継続）:**
-
-```markdown
-認証方式について検討しました。JWT と Session の両方に利点がありますが...
-
-いくつか確認したい点があります：
-- ユーザー数の想定規模は？
-- モバイルアプリからのアクセスは想定していますか？
-
----
-status: continue
-open_questions:
-  - ユーザー規模の想定
-  - モバイルアプリ対応の有無
-decisions:
-  - REST API で実装する
----
-```
-
-### 関連ファイル
-
-詳細な仕様は `skills/codex-collab/references/` にあります：
-
-- `lightweight-metadata.md` - 軽量メタデータプロトコル仕様
-- `planning-prompt.md` - 計画依頼テンプレート
-- `review-prompt.md` - レビュー依頼テンプレート
-- `deprecated/` - 旧構造化プロトコル（参考用）
 
 ## ライセンス
 

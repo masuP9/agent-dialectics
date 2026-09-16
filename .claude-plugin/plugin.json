@@ -1,22 +1,8 @@
 {
   "name": "codex-collab",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "Claude Code と OpenAI Codex CLI の協調タスク実行プラグイン",
   "author": {
     "name": "masuP9"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'for d in \"${CLAUDE_PLUGIN_ROOT:-}\" \"$(ls -td ~/.claude/plugins/cache/codex-collab/codex-collab/*/ 2>/dev/null | head -1)\"; do [ -f \"$d/hooks/enforce-skill-usage.sh\" ] && exec bash \"$d/hooks/enforce-skill-usage.sh\"; done; exit 0'",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
   }
 }

@@ -25,7 +25,7 @@ For a non-trivial implementation, use:
 
 ```bash
 HELPERS="${CODEX_HOME:-$HOME/.codex}/skills/claude-collab/scripts/claude-helpers.sh"
-[ -f "$HELPERS" ] || HELPERS="$(pwd)/skills/claude-collab/scripts/claude-helpers.sh"
+[ -f "$HELPERS" ] || HELPERS="$(pwd)/codex-skills/claude-collab/scripts/claude-helpers.sh"
 source "$HELPERS"
 PROMPT_FILE=$(claude_write_prompt "$PLANNING_PROMPT" "plan")
 OUTPUT_FILE=$(claude_tmp_path "claude-plan-output.md")
