@@ -1,0 +1,9 @@
+{
+  "ready": true,
+  "codex": {
+    "available": true
+  },
+  "auth": {
+    "loggedIn": true
+  }
+}

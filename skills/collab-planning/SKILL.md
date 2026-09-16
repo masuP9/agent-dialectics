@@ -1,6 +1,6 @@
 ---
 name: Collaborative Planning
-description: This skill should be used when the user wants to "plan with Codex", "create a plan", "draft implementation plan", "help me plan", "plan before implementing", "refine a plan", "review my plan idea", "Codexと計画を立てる", "実装計画を作成", "計画を立てたい", "計画を一緒に考えて", "実装方針を相談", "Codexと設計を練る", "計画だけ作りたい", "実装前に計画を立てたい", "計画をレビューしてほしい", or mentions creating/refining an implementation plan as the deliverable without proceeding to implementation. NOTE: This is for PLAN-ONLY workflows that produce a plan document as the deliverable. Do NOT use when the user wants implementation (use codex-collab instead). Do NOT use for adversarial design critique (use devils-advocate instead). Do NOT use for debugging (use strong-inference instead).
+description: 'This skill should be used when the user wants to "plan with Codex", "create a plan", "draft implementation plan", "help me plan", "plan before implementing", "refine a plan", "review my plan idea", "Codexと計画を立てる", "実装計画を作成", "計画を立てたい", "計画を一緒に考えて", "実装方針を相談", "Codexと設計を練る", "計画だけ作りたい", "実装前に計画を立てたい", "計画をレビューしてほしい", or mentions creating/refining an implementation plan as the deliverable without proceeding to implementation. NOTE: This is for PLAN-ONLY workflows that produce a plan document as the deliverable. Do NOT use when the user wants implementation (use codex-collab instead). Do NOT use for adversarial design critique (use devils-advocate instead). Do NOT use for debugging (use strong-inference instead).'
 ---
 
 # Collaborative Planning Skill

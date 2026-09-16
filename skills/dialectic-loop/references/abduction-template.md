@@ -1,13 +1,17 @@
 # Abduction Template (Abduction Role → Codex)
 
 Used in the `--abduce` variant's **Phase 0a** to have Codex *generate* candidate hypotheses
-from the corpus. Codex runs this on a **dedicated abduction thread** (kept separate from the
-later induction thread). Fill the `{{...}}` placeholders.
+from the corpus. Codex runs this as a **dedicated fresh call** (role `abduction`, kept separate
+from every later induction call). Fill the `{{...}}` placeholders and write the result to
+`<state-dir>/abduction-<attempt>/prompt.md` (see SKILL.md → Codex 役の呼び出し).
 
 ## Prompt Template
 
 ```markdown
-{{LANG_DIRECTIVE}}You are the **abduction (hypothesis-generation) role** in a Dialectic Loop.
+<!-- agent-dialectics-role: dialectic-loop/abduction -->
+Answer in {{CONVERSATION_LANGUAGE}}. Do not use web search. This is read-only analysis — do not modify any file.
+
+You are the **abduction (hypothesis-generation) role** in a Dialectic Loop.
 Your job is to look at the real corpus and propose **competing candidate hypotheses** worth
 testing — not to test them. A different model (the deductive role) will design the tests, and
 the arbiter will judge; so make the candidates sharp and falsifiable, not safe.
@@ -62,8 +66,9 @@ status: stop
 
 - Claude (or the user via `AskUserQuestion`) selects ONE candidate as the confirmed hypothesis **H**.
 - Selection criteria: falsifiability, discriminability, and how much it would teach if wrong.
-- The confirmed H — **and nothing from this abduction thread's rationale/candidates** — is what
-  gets passed to the induction role on a *fresh* thread (independence guard).
+- The confirmed H — **and nothing from this abduction call's rationale/candidates** (the state
+  file's `## Abduction` section) — is what gets passed to the induction role in a separate *fresh*
+  call (independence guard; see SKILL.md → Non-leak rule).
 
 ## Quality bar
 

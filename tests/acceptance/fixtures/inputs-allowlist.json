@@ -1,0 +1,33 @@
+{
+  "$comment": "Gate A-1 non-leak allowlist (node tests/acceptance/check-inputs.mjs <state-dir>). Keys are <method>/<role> with the -r<N> suffix stripped; <N>/<N-1> match any round number. Section names are copied from each SKILL.md. contradiction-lift preserve-b-* rows assume anonymization_key X=A,Y=B (<a>=X, <b>=Y; the states/ fixture uses this key). For X=B,Y=A use inputs-allowlist.x-is-b.json. arbiter-d<k> is not stripped by check-inputs, so d1..d5 are listed explicitly.",
+  "strong-inference/hypothesis": ["Problem", "Context", "Hypotheses", "Verification Log"],
+  "strong-inference/review": ["Problem", "Context", "Hypotheses", "Verification Log"],
+  "devils-advocate/red": ["Context", "Snapshot", "Debate Log/Round <N-1>/Red Team", "Debate Log/Round <N>/Blue Team"],
+  "dialectic-loop/abduction": ["frontmatter.corpus", "frontmatter.original_claim"],
+  "dialectic-loop/induction": [
+    "Claim Definition / Corpus and extraction rule",
+    "Round <N> / Hypothesis (H)",
+    "Round <N> / Deductive — Predictions",
+    "Round <N> / Inductive — Evidence",
+    "Round <N> / Arbitration / Scorecard",
+    "Round <N> / Arbitration / Disk recompute"
+  ],
+  "dialectic-loop/deduction": [
+    "Claim Definition / Corpus and extraction rule",
+    "Round <N> / Hypothesis (H)",
+    "Round <N> / Arbitration / Scorecard"
+  ],
+  "contradiction-lift/solver-b": ["Decision Contract"],
+  "contradiction-lift/mapper": ["Decision Contract", "Anonymized Solutions/Solution X", "Anonymized Solutions/Solution Y"],
+  "contradiction-lift/arbiter-d1": ["Decision Contract", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/arbiter-d2": ["Decision Contract", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/arbiter-d3": ["Decision Contract", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/arbiter-d4": ["Decision Contract", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/arbiter-d5": ["Decision Contract", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/preserve-b-steelman": ["Decision Contract", "Anonymized Solutions/Solution Y", "Anonymized Solutions/Solution X", "Divergence Ledger", "Adjudication"],
+  "contradiction-lift/preserve-b-review": ["Decision Contract", "Anonymized Solutions/Solution Y", "Preservation/X-steelmans-Y"],
+  "contradiction-lift/preserve-b-rereview": ["Decision Contract", "Anonymized Solutions/Solution Y", "Preservation/X-steelmans-Y"],
+  "contradiction-lift/preserve-b-repair": ["Decision Contract", "Anonymized Solutions/Solution Y", "Anonymized Solutions/Solution X", "Preservation/Y-steelmans-X", "Preservation/Review of Y-steelmans-X"],
+  "contradiction-lift/lift": ["Decision Contract", "Anonymized Solutions/Solution X", "Anonymized Solutions/Solution Y", "Divergence Ledger", "Adjudication", "Preservation", "Lift/Attempt <N-1>", "Audit/Attempt <N-1>"],
+  "contradiction-lift/audit": ["Decision Contract", "Anonymized Solutions/Solution X", "Anonymized Solutions/Solution Y", "Divergence Ledger", "Adjudication", "Preservation", "Lift/Attempt <N>"]
+}

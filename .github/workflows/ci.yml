@@ -19,6 +19,9 @@ jobs:
       - name: Run hook tests
         run: bash hooks/test-enforce-skill-usage.sh
 
+      - name: Run run-codex-role tests
+        run: bash scripts/test-run-codex-role.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:

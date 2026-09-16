@@ -78,17 +78,15 @@ codex-collab/
 │   └── marketplace.json       # マーケットプレイス公開用メタデータ
 ├── commands/
 │   ├── codex-collab.md        # /codex-collab コマンド
-│   ├── collab-planning.md     # /collab-planning コマンド
-│   ├── strong-inference.md    # /strong-inference コマンド
-│   ├── devils-advocate.md     # /devils-advocate コマンド
-│   ├── dialectic-loop.md      # /dialectic-loop コマンド
-│   └── contradiction-lift.md  # /contradiction-lift コマンド
+│   └── collab-planning.md     # /collab-planning コマンド
 ├── hooks/
 │   ├── enforce-skill-usage.sh # PreToolUse フック（スキル経由強制）
 │   └── enforce-skill-usage.md # フック設定ドキュメント
 ├── scripts/
 │   ├── codex-helpers.sh       # 共通ヘルパー関数
-│   └── test-helpers.sh        # ヘルパーのテストスイート
+│   ├── test-helpers.sh        # ヘルパーのテストスイート
+│   ├── run-codex-role.sh      # 4手法スキルの Codex 役呼び出し（公式 companion 経由）
+│   └── test-run-codex-role.sh # run-codex-role.sh のテスト
 ├── docs/
 │   └── bash-usage.md          # Bash 使用ルール詳細
 └── skills/
@@ -189,37 +187,41 @@ Codex と協調して実装計画を作成します。**計画のみ — 実装�
 - 各ラウンド末に要約スナップショット（決定事項/未解決/却下案）で文脈劣化を防止
 - 計画ログを `tmp/collab-planning/` に保存
 
-### `/strong-inference` コマンド
+### 4手法スキル共通
+
+strong-inference / devils-advocate / dialectic-loop / contradiction-lift はスキル（`skills/<method>/SKILL.md`）として `/codex-collab:<method>` で起動します。Codex 役は公式 [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) の companion を `scripts/run-codex-role.sh` 経由で毎回新しいスレッド・読み取り専用で呼びます（codex-plugin-cc のインストールが前提）。状態ファイルは対象リポジトリの外 `${XDG_STATE_HOME:-~/.local/state}/agent-dialectics/<repo-slug>/<method>/<task-id>/` に保存されます。
+
+### `/codex-collab:strong-inference`
 
 Strong Inference（強い推論）メソッドを使って、仮説駆動でバグ調査を行います。
 
 ```
 # 基本的な使い方
-/strong-inference APIが時々500エラーを返す
+/codex-collab:strong-inference APIが時々500エラーを返す
 
 # モード指定
-/strong-inference --mode claude-only テストがフレーキーな原因を調べて
+/codex-collab:strong-inference --mode claude-only テストがフレーキーな原因を調べて
 ```
 
 **特徴:**
 - 2-4個の競合仮説を生成
 - 各仮説を排除する「キラー実験」を設計
-- 仮説ツリーを `tmp/strong-inference/` に保存（調査状態を永続化）
+- 仮説ツリーを状態ファイルに保存（調査状態を永続化）
 - codexモードではCodexが仮説生成、Claudeが検証実行
 
-### `/devils-advocate` コマンド
+### `/codex-collab:devils-advocate`
 
 Devil's Advocate（悪魔の代弁者）メソッドを使って、設計案や仮説をストレステストします。
 
 ```
 # 基本的な使い方
-/devils-advocate このキャッシュ設計を検証して
+/codex-collab:devils-advocate このキャッシュ設計を検証して
 
 # モード指定
-/devils-advocate --mode claude-only マイクロサービス移行は妥当か
+/codex-collab:devils-advocate --mode claude-only マイクロサービス移行は妥当か
 
 # ラウンド数指定
-/devils-advocate --max-rounds 5 この認証設計
+/codex-collab:devils-advocate --max-rounds 5 この認証設計
 ```
 
 **特徴:**
@@ -227,40 +229,40 @@ Devil's Advocate（悪魔の代弁者）メソッドを使って、設計案や�
 - 3ラウンド（デフォルト）の反論・再反論
 - 最終評価: APPROVE / CONDITIONAL / REJECT
 - codexモードではCodexがRed Team、ClaudeがBlue Team
-- 議論ログを `tmp/devils-advocate/` に保存
+- 議論ログを状態ファイルに保存
 
-### `/dialectic-loop` コマンド
+### `/codex-collab:dialectic-loop`
 
 経験的な主張を Peirce の探究サイクル（演繹→帰納→仲裁）で現物データに照らして検証・精緻化します。
 
 ```
 # 主張を corpus で検証
-/dialectic-loop "このコードベースは合成を継承より好む" --corpus "src/**/*.ts"
+/codex-collab:dialectic-loop "このコードベースは合成を継承より好む" --corpus "src/**/*.ts"
 
 # Codex に仮説生成から任せる（アブダクション variant）
-/dialectic-loop --abduce --corpus "scripts/**/*.sh"
+/codex-collab:dialectic-loop --abduce --corpus "scripts/**/*.sh"
 ```
 
 **特徴:**
 - 演繹役（Claude）が反証可能な予測、帰納役（Codex, 独立）が現物コーパスをスクリプト集計＋反例探索、仲裁役（Claude）がスコアカードで H′ に更新
 - `--abduce` で仮説生成自体を Codex に委譲（著者≠仲裁の独立性）
 - 出力は「更新された仮説 H′ ＋ confidence ＋ 元の枠組みが見落とした点」
-- ループログを `tmp/dialectic-loop/` に保存
+- ループログを状態ファイルに保存
 
-### `/contradiction-lift` コマンド
+### `/codex-collab:contradiction-lift`
 
 Claude と Codex に**同じ問いを独立に解かせ**、答えの食い違いを止揚（アウフヘーベン）します。平均でも折衷でもなく、両者の真理契機を保存したまま一段高い枠へ。
 
 ```
 # 実行で決着しない設計/価値の二択を止揚
-/contradiction-lift "ループは段数固定か収束検知か"
+/codex-collab:contradiction-lift "ループは段数固定か収束検知か"
 ```
 
 **特徴:**
 - 状態機械: contract → sealed → mapped → adjudicated → preserved → lifted → accepted | aporia | no_material_divergence
 - 立場を事前割当せず、独立解の食い違いから矛盾を立ち上げる（devils-advocate の外部反対役とは逆）
 - 出力は**選択機構 `f(C)→A|B|N`** か **正直なアポリア**（偽の総合に逃げない）
-- 経験的に決着する対立は Codex 実行へ routing。ログを `tmp/contradiction-lift/` に保存
+- 経験的に決着する対立は Codex 実行へ routing。ログを状態ファイルに保存
 
 ### スキルの自動起動
 

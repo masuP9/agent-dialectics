@@ -45,6 +45,28 @@ PRを作成する前に、変更内容に応じて以下の **両方のファイ
 }
 ```
 
+## 4手法スキルの Codex 呼び出し（v0.39.0+）
+
+strong-inference / devils-advocate / dialectic-loop / contradiction-lift は `skills/<method>/SKILL.md` だけで完結し（`/codex-collab:<method>` で起動）、Codex 役は **`scripts/run-codex-role.sh` の 1 経路のみ**で呼ぶ。下記「Codex 通信の仕様」（codex_* helper）は codex-collab / collab-planning ワークフロー用で、PR2 で削除予定。
+
+- 中身は公式 codex-plugin-cc companion の `node codex-companion.mjs task --fresh --json --prompt-file … --cwd …`。事前に `setup --json` で `ready`・`codex.available`・`auth.loggedIn` を確認
+- 成功条件: 終了コード 0 かつ JSON パース成功かつ `status === 0`（数値）かつ trim(rawOutput) 非空かつ touchedFiles 空。そのときだけ `answer.md`・`meta.json`・`DONE` を書く
+- 終了コード: `0` 成功 / `1` 引数エラー・attempt ディレクトリ再利用 / `2` Codex 不可 / `4` 実行失敗 / `5` 結果不正。4・5 は自動再実行しない
+- `--write` / `--resume` / `--resume-last` / `--background` は受け付けない（常に fresh・read-only）
+- 作業ファイルは対象リポジトリの外: `${XDG_STATE_HOME:-~/.local/state}/agent-dialectics/<repo-slug>/<method>/<task-id>/`
+- テスト用の差し替え: `CODEX_COMPANION_PATH`（companion のパス）、`INSTALLED_PLUGINS_JSON`、`CODEX_COMPANION_NO_CACHE_FALLBACK=1`。偽 companion は `tests/acceptance/mock-companion.mjs`
+
+### 利用量ポリシー
+
+- Codex 役は常に fresh。反復は state.md の要約と抜粋を貼った自己完結プロンプトで再投入する
+- 事実（ファイル抜粋・行番号）はプロンプトに入れ、リポジトリ探索を指示しない（例外: dialectic-loop の abduction / induction は corpus 読取が役割）
+- 1 呼び出しあたり入力 10 万トークンまで（例外ロールは各 SKILL.md のロール表で個別上限を宣言）
+- ロール別モデル（ゲート A の期待値、2026-09-16 時点の `~/.codex/models_cache.json` から選定）:
+  - 本体ロール（封印解・Lift・Audit・批評・検証）: `--model` / `--effort` を付けない = config.toml 既定（現在 `gpt-6-astra` / `low`）
+  - 軽量ロール（Mapper・分類・単純確認）: `--model gpt-5.6-luna --effort low`
+- Web 検索: codex-cli 0.154.0 では `--search` 指定時のみ有効になる。companion 経由で無効化する設定キーは未確認のため、全ロールのプロンプトで Web 検索を使わないよう明記している
+- 手法の実行中・直後に同じリポジトリで `/codex:rescue --resume` を使わない（手法のロール thread を継続してしまう）
+
 ## Codex 通信の仕様
 
 OpenAI Codex と連携する際に知っておくべき仕様。通信は `codex` CLI のみ（検証済み: codex-cli 0.154.0 / 対応対象: 0.154.0 以上）。`codex mcp-server` は 0.154.0 で削除されたため使用しない。
@@ -91,10 +113,9 @@ codex exec -s read-only -m gpt-5.6-sol - < prompt.txt
 ```sh
 # 基本パターン
 codex review --uncommitted
-
-# カスタムプロンプト付き
-codex review --uncommitted "セキュリティ脆弱性に注目してレビュー"
 ```
+
+- codex-cli 0.154.0 では `--uncommitted` とカスタムプロンプト（`[PROMPT]`）は同時に指定できない（`error: the argument '--uncommitted' cannot be used with '[PROMPT]'`、2026-09-16 確認）。観点を指定したいときは `scripts/run-codex-role.sh` に「`git diff` を読んでレビューせよ」というプロンプトを渡す
 
 - レビューフェーズでは `codex review` を第一選択、失敗時は計画スレッドを `codex_run_exec_session` で resume してレビュー
 - `codex_run_review()` が sandbox_mode 指定（既定 read-only、`-c sandbox_mode=` 経由）、ANSI 除去、出力保存、exit code ハンドリング、モデル指定 retry を統合処理
@@ -122,10 +143,10 @@ codex-collab のヘルパー関数を直接 Bash で実行すると、承認プ�
 |------|---------------|
 | 協調タスク開始（計画〜実装〜レビュー） | `/codex-collab [task]` |
 | 計画のみ作成 | `/collab-planning [idea]` |
-| 未知の原因を究明（バグ/デバッグ） | `/strong-inference [problem]` |
-| 設計案を反証でストレステスト | `/devils-advocate [proposal]` |
-| 経験的主張をデータで検証・精緻化 | `/dialectic-loop [claim]` |
-| 競合する2解を平均でなく止揚 | `/contradiction-lift [question]` |
+| 未知の原因を究明（バグ/デバッグ） | `/codex-collab:strong-inference [problem]` |
+| 設計案を反証でストレステスト | `/codex-collab:devils-advocate [proposal]` |
+| 経験的主張をデータで検証・精緻化 | `/codex-collab:dialectic-loop [claim]` |
+| 競合する2解を平均でなく止揚 | `/codex-collab:contradiction-lift [question]` |
 
 > 分析系の使い分け: **strong-inference**=未知の原因、**devils-advocate**=1つの提案を外から叩く、**dialectic-loop**=主張×現物データ、**contradiction-lift**=独立した2解の食い違いを止揚。詳細な選択ガイドは README「スキルの使い分け」。
 
@@ -140,15 +161,19 @@ Bash 使用ルールの詳細（スキルコンテキスト検出の仕組み、
 
 ## テスト
 
-PR 作成前に以下の両方を実行し、全テストがパスすることを確認すること。
+PR 作成前に以下をすべて実行し、全テストがパスすることを確認すること。
 
 ```sh
 bash scripts/test-helpers.sh                              # ヘルパー関数のユニットテスト
 bash skills/claude-collab/scripts/test-claude-helpers.sh  # claude-collab ヘルパーのテスト
+bash hooks/test-enforce-skill-usage.sh                    # PreToolUse フックのテスト
+bash scripts/test-run-codex-role.sh                       # run-codex-role.sh のテスト（node 必須、偽 companion 使用）
+bash scripts/lint-plugin.sh                               # バージョン同期・SKILL.md frontmatter・相対リンク・禁止参照語（PyYAML 必須）
 ```
 
-- 純粋な bash のみで動作し、外部依存・実 codex 呼び出しはない
-- CI（`.github/workflows/ci.yml`）でも同じ 2 スイートを実行している
+- 外部依存は bash / node / python3（PyYAML）のみ。実 codex 呼び出しはない
+- CI（`.github/workflows/ci.yml`）でも同じスイートを実行している
+- 4手法スキルの受け入れ確認は `tests/acceptance/checklist.md`（ゲート A）
 - ヘルパー関数を追加・変更した場合は対応するテストを追加すること
 
 ## ヘルパースクリプトの管理
